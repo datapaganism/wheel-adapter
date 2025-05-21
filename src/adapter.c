@@ -8,6 +8,90 @@
 #include "pico/stdio.h"
 
 #include "reports.h"
+#include "transport.h"
+#include "uart_config.h"
+
+#include "pico/stdlib.h"
+#include "hardware/uart.h"
+#include "hardware/irq.h"
+
+
+
+
+
+void dump_g29_report(g29_report_t* report)
+{
+    printf("ry     is 0x%x\n", report->ry);
+    printf("wheel  is 0x%x\n", report->wheel);
+    printf("clutch is 0x%x\n", report->clutch);
+}
+
+void unpack_buffer_to_g29(uint8_t* src, uint8_t* dest)
+{
+    memcpy(dest,src, 8);
+    src += 8;
+    dest += (8 + 34);
+    memcpy(dest,src, 8);
+    // dump_g29_report((g29_report_t*)dest);
+}
+
+
+buffer_t rx_buffer;
+buffer_t tx_buffer;
+
+int UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
+
+uint8_t* com1Tx_buf = (uint8_t*)&tx_buffer.buffer;											// pointer to the buffer for transmitted characters
+volatile int com1Tx_head, com1Tx_tail;	
+
+void on_uart_irq0() {
+    irq_set_enabled(UART_IRQ, false);
+    if(uart_is_readable(uart0)) {
+		rx_buffer.buffer[rx_buffer.head]  = uart_getc(uart0);   // store the byte in the ring buffer
+		rx_buffer.head = (rx_buffer.head + 1) % sizeof(rx_buffer.buffer);     // advance the head of the queue
+		if(rx_buffer.head == rx_buffer.tail) {                           // if the buffer has overflowed
+			rx_buffer.tail = (rx_buffer.tail + 1) % sizeof(rx_buffer.buffer); // throw away the oldest char
+		}
+    }
+    // if(uart_is_writable(uart0)){
+	// 	if(com1Tx_head != com1Tx_tail) {
+	// 		uart_putc_raw(uart0,com1Tx_buf[com1Tx_tail]);
+	// 		com1Tx_tail = (com1Tx_tail + 1) % sizeof(tx_buffer.buffer);       // advance the tail of the queue
+	// 	} else {
+	// 		uart_set_irq_enables(uart0, true, false);
+	// 	}
+    // }
+
+    irq_set_enabled(UART_IRQ, true);
+}
+
+void setupuart(){
+	uart_init(UART_ID,BAUD_RATE);
+    uart_set_hw_flow(UART_ID, false, false);
+    uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
+    uart_set_fifo_enabled(UART_ID, false);
+    UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
+
+    // if(uart){
+	// 	irq_set_exclusive_handler(UART_IRQ, on_uart_irq1);
+    // 	irq_set_enabled(UART_IRQ, true);
+	// } else {
+    irq_set_exclusive_handler(UART_IRQ, on_uart_irq0);
+    irq_set_enabled(UART_IRQ, true);
+	// }
+    uart_set_irq_enables(UART_ID, true, false);
+
+    uart_puts(UART_ID, "\nHello, uart interrupts\n");
+
+}
+
+void reset_buffer(buffer_t* buffer)
+{
+    buffer->head = 0;
+    buffer->tail = 0;
+}
+
+
 
 uint8_t nonce_id;
 uint8_t nonce[280];
@@ -58,6 +142,92 @@ const uint8_t output_0x03[] = {
 
 const uint8_t output_0xf3[] = { 0x0, 0x38, 0x38, 0, 0, 0, 0 };
 
+
+bool is_data_available(buffer_t* ptr,size_t len) {
+    size_t available = (ptr->head >= ptr->tail) ? (ptr->head - ptr->tail) : (RX_TX_BUFFER_LEN - ptr->tail + ptr->head);
+    return available >= len;
+}
+
+uint8_t peek_byte(buffer_t* ptr,size_t index) {
+    return ptr->buffer[index % RX_TX_BUFFER_LEN];
+}
+
+void advance_tail(buffer_t* ptr,size_t count) {
+    ptr->tail = (ptr->tail + count) % RX_TX_BUFFER_LEN;
+}
+
+
+bool get_payload(buffer_t* ptr, uint8_t* payload_out) {
+    while (is_data_available(ptr,18)) 
+    {
+        // Peek first 2 bytes for header
+        uint8_t byte1 = peek_byte(ptr, ptr->tail);
+        uint8_t byte2 = peek_byte(ptr,ptr->tail + 1);
+        if (byte1 == HEADER_BYTE_1 && byte2 == HEADER_BYTE_2) {
+            // Valid header found, copy payload
+            advance_tail(ptr, 2);
+            for (size_t i = 0; i < MESSAGE_LEN; ++i) {
+                payload_out[i] = peek_byte(ptr, ptr->tail + i);
+            }
+            advance_tail(ptr, MESSAGE_LEN);
+            return true;
+        } else {
+            // printf("BAD H\n");
+            // Invalid header, skip 1 byte
+            advance_tail(ptr,1);
+        }
+    }
+    return false;
+}
+
+
+void uart_task()
+{
+
+    uint8_t test_buf[16];
+    if (get_payload(&rx_buffer, (uint8_t*)&test_buf)) {
+        uint8_t* ptr = (uint8_t*)&test_buf;
+        unpack_buffer_to_g29(ptr,(uint8_t*)&report);
+
+        // if (report.PS == true)
+        // {
+        //     printf("PS is 0x%x\n", report.PS);
+        // }
+
+        // if (report.cross == true)
+        // {
+        //     printf("cross is 0x%x\n", report.cross);
+        // }
+
+            // Process payload
+    }
+
+    // transport_t* t_ptr = (transport_t*)&rx_buffer.buffer;
+    // // if not empty
+    // if (rx_buffer.head != 0)
+    // {  
+    //     if (rx_buffer.head >= sizeof(t_ptr->header.sync_phrase) + MESSAGE_LEN)
+    //     {
+    //         if (t_ptr->header.sync_phrase != SYNC_PHRASE)
+    //         {
+    //             printf("sync incorrect\n");
+    //             reset_buffer(&rx_buffer);
+    //             return;
+    //         }
+    //         // for (uint8_t i = 0; i < MESSAGE_LEN; i++)
+    //         // {
+    //             // printf("0x%x\n",t_ptr->bytes[i]);
+    //         // }
+    //         unpack_buffer_to_g29((uint8_t*)&t_ptr->bytes,(uint8_t*)&report);
+
+    //         // printf("\n");
+    //         reset_buffer(&rx_buffer);
+    //     }
+
+    // }
+}
+
+
 void report_init() {
     memset(&report, 0, sizeof(report));
     report.lx = 0x80;
@@ -73,7 +243,7 @@ void hid_task() {
         return;
     }
 
-    report.PS = report.select && report.start;
+    // report.PS = report.select && report.start;
 
     if (memcmp(&prev_report, &report, sizeof(report))) {
         tud_hid_report(1, &report, sizeof(report));
@@ -89,6 +259,12 @@ void hid_task() {
 }
 
 void wheel_init_task() {
+
+    // if (!initialized)
+    // {
+    //     initialized = true;
+    // }
+
     if (wheel_device && !initialized) {
         initialized = true;
         static uint8_t buf[] = { 0xf5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };  // disable autocenter
@@ -133,10 +309,13 @@ int main() {
     report_init();
     tusb_init();
     stdio_init_all();
+    setupuart();
+    // init_uart_test();
 
     while (1) {
         tuh_task();
         tud_task();
+        uart_task();
         hid_task();
         auth_task();
         wheel_init_task();
@@ -252,6 +431,7 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
         }
     } else {
         if (bufsize > sizeof(ff_buf)) {
+            // printf("Got FFB packet\n");
             // pass everything through to the wheel
             memcpy(ff_buf, buffer + 1, sizeof(ff_buf));
         }
@@ -265,6 +445,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
 
     printf("tuh_hid_mount_cb %04x:%04x %d %d\n", vid, pid, dev_addr, instance);
 
+    // initialized = false;
+
     if ((vid == 0x046d) && (pid == 0xc294)) {  // Driving Force (or another wheel in compatibility mode)
         wheel_device = dev_addr;
         wheel_instance = instance;
@@ -273,6 +455,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
     } else {  // assume everything else is the controller we use for authentication
         auth_device = dev_addr;
         auth_instance = instance;
+        // printf("Got auth controller\n");
     }
 }
 

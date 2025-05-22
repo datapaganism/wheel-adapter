@@ -5,8 +5,10 @@ pygame.init()
 import serial
 from g29report import G29Report
 
-# ser = serial.Serial('/dev/ttyUSB0',baudrate=921600)  # open serial port
-ser = serial.Serial('/dev/ttyUSB0',baudrate=115200)  # open serial port
+BAUDRATE = 921600
+BAUDRATE = 115200
+
+ser = serial.Serial('/dev/ttyUSB0',baudrate=BAUDRATE)  # open serial port
 report = G29Report().get()
 
 # Reverse byte order
@@ -139,6 +141,18 @@ def main():
                 report.square = j.get_button(3)
                 report.PS = j.get_button(11)
                 report.start = j.get_button(10)
+
+                throt = j.get_button(8)
+                throt = num_to_range(throt,0, 1, 0xFFFF, 0)
+                report.throttle = int(throt)
+
+                brake = int(j.get_button(7))
+                brake = num_to_range(brake, 0, 1, 0xFFFF, 0)
+                report.brake = int(brake)
+
+                axis0 = j.get_axis(0)
+                axis0 = num_to_range(axis0,-1, 1, 0, 0xFFFF)
+                report.wheel = int(axis0)
          
 
                 # stick_left_right = j.get_axis(0) # 1 is full left, -1 full right
@@ -207,8 +221,8 @@ def main():
             guid = joystick.get_guid()
             text_print.tprint(screen, f"GUID: {guid}")
 
-            power_level = joystick.get_power_level()
-            text_print.tprint(screen, f"Joystick's power level: {power_level}")
+            # power_level = joystick.get_power_level()
+            # text_print.tprint(screen, f"Joystick's power level: {power_level}")
 
             # Usually axis run in pairs, up/down for one, and left/right for
             # the other. Triggers count as axes.
@@ -249,7 +263,7 @@ def main():
         pygame.display.flip()
 
         # Limit to 30 frames per second.
-        clock.tick(200)
+        clock.tick(60)
 
 
 if __name__ == "__main__":

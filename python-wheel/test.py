@@ -5,10 +5,11 @@ import random
 
 if __name__ == "__main__":
 
-    ser = serial.Serial('/dev/ttyUSB0',baudrate=921600)  # open serial port
+    # ser = serial.Serial('/dev/ttyUSB0',baudrate=921600)  # open serial port
+    ser = serial.Serial('/dev/ttyUSB0',baudrate=115200)  # open serial port
     print(ser.name)         # check which port was really used
 
-    report = G29Report()
+    report = G29Report().get()
     boole = True
 
     while (1):
@@ -24,14 +25,18 @@ if __name__ == "__main__":
         # print(i)
         # break
 
-        # report.lx = random.randint(0, 255)
-        # report.ly = random.randint(0, 255)
-        # report.rx = random.randint(0, 255)
-        # report.ry = random.randint(0, 255)
-        # report.wheel = random.randint(0, 1<<15)
-        # report.throttle = random.randint(0, 1<<15)
-        # report.brake = random.randint(0, 1<<15)
-        report.clutch = 0xABCD
+        # report.lx = random.randint(0, 255) # axis0
+        # report.ly = random.randint(0, 255) # axis1
+        # report.rx = random.randint(0, 255) # axis2
+        # report.ry = random.randint(0, 255) #axis5
+        report.wheel = random.randint(0, 1<<6)
+        report.throttle = random.randint(0, 1<<15)
+        report.brake = random.randint(0, 1<<15)
+        report.clutch = random.randint(0, 1<<15)
+
+        # report.wheel = 0x1234
+        # report.clutch = 0x5678
+        # report.throttle = 0x1234
         report.touchpad = boole
         # report.dpad = boole
         boole = not boole
@@ -43,10 +48,11 @@ if __name__ == "__main__":
 
         packed = report.pack()
         packed = SYNC + packed
+        # packed = SYNC
         print(packed)
         x = ser.write(packed)
         print(x)
-        # break
+        break
         time.sleep(0.5)
 
     ser.close()             # close port

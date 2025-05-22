@@ -13,22 +13,23 @@ typedef struct __attribute__((packed))
 
 #define MESSAGE_LEN 16
 
-
 typedef struct __attribute__((packed))
 {
     header_t header;
     uint8_t bytes[MESSAGE_LEN];
-    uint8_t paddinglmao[MESSAGE_LEN];
-} transport_t;
-
-#define RX_TX_BUFFER_LEN (sizeof(transport_t))
+} packet_t;
 
 typedef struct __attribute__((packed))
 {
-    uint8_t buffer[RX_TX_BUFFER_LEN];
-    volatile uint8_t head;
-    volatile uint8_t tail;
-} buffer_t;
+    packet_t packet;
+    uint8_t paddinglmao[128];
+} transport_t;
+
+#define PACKET_LEN (sizeof(packet_t))
+
+#define RX_TX_BUFFER_LEN (sizeof(transport_t))
+
+
 
 
 void rx_read();

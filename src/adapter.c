@@ -10,6 +10,7 @@
 #include "reports.h"
 #include "transport.h"
 #include "uart_config.h"
+#include "ring_buffer.h"
 
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
@@ -26,15 +27,18 @@ void dump_g29_report(g29_report_t* report)
     printf("clutch is 0x%x\n", report->clutch);
 }
 
-void unpack_buffer_to_g29(uint8_t* src, uint8_t* dest)
-{
-    memcpy(dest,src, 8);
-    src += 8;
-    dest += (8 + 34);
-    memcpy(dest,src, 8);
-    // dump_g29_report((g29_report_t*)dest);
-}
 
+void unpack_buffer_to_g29(uint8_t* buffer, g29_report_t* report)
+{
+    uint8_t* b = buffer;
+    uint8_t* r = (uint8_t*)report;
+
+    memcpy(r,b, 8);
+    b += 8;
+    r += (8 + 34);
+    memcpy(r,b, 8);
+    // dump_g29_report(report);
+}
 
 buffer_t rx_buffer;
 buffer_t tx_buffer;
@@ -45,13 +49,9 @@ uint8_t* com1Tx_buf = (uint8_t*)&tx_buffer.buffer;											// pointer to the b
 volatile int com1Tx_head, com1Tx_tail;	
 
 void on_uart_irq0() {
-    irq_set_enabled(UART_IRQ, false);
     if(uart_is_readable(uart0)) {
-		rx_buffer.buffer[rx_buffer.head]  = uart_getc(uart0);   // store the byte in the ring buffer
-		rx_buffer.head = (rx_buffer.head + 1) % sizeof(rx_buffer.buffer);     // advance the head of the queue
-		if(rx_buffer.head == rx_buffer.tail) {                           // if the buffer has overflowed
-			rx_buffer.tail = (rx_buffer.tail + 1) % sizeof(rx_buffer.buffer); // throw away the oldest char
-		}
+        uint8_t byte_got = uart_getc(uart0);
+        rb_push(&rx_buffer, byte_got);
     }
     // if(uart_is_writable(uart0)){
 	// 	if(com1Tx_head != com1Tx_tail) {
@@ -62,7 +62,7 @@ void on_uart_irq0() {
 	// 	}
     // }
 
-    irq_set_enabled(UART_IRQ, true);
+    // irq_set_enabled(UART_IRQ, true);
 }
 
 void setupuart(){
@@ -81,16 +81,9 @@ void setupuart(){
 	// }
     uart_set_irq_enables(UART_ID, true, false);
 
-    uart_puts(UART_ID, "\nHello, uart interrupts\n");
+    uart_puts(UART_ID, "\nHello, its a me, uart\n");
 
 }
-
-void reset_buffer(buffer_t* buffer)
-{
-    buffer->head = 0;
-    buffer->tail = 0;
-}
-
 
 
 uint8_t nonce_id;
@@ -143,56 +136,66 @@ const uint8_t output_0x03[] = {
 const uint8_t output_0xf3[] = { 0x0, 0x38, 0x38, 0, 0, 0, 0 };
 
 
-bool is_data_available(buffer_t* ptr,size_t len) {
-    size_t available = (ptr->head >= ptr->tail) ? (ptr->head - ptr->tail) : (RX_TX_BUFFER_LEN - ptr->tail + ptr->head);
-    return available >= len;
-}
-
-uint8_t peek_byte(buffer_t* ptr,size_t index) {
-    return ptr->buffer[index % RX_TX_BUFFER_LEN];
-}
-
-void advance_tail(buffer_t* ptr,size_t count) {
-    ptr->tail = (ptr->tail + count) % RX_TX_BUFFER_LEN;
-}
-
-
-bool get_payload(buffer_t* ptr, uint8_t* payload_out) {
-    while (is_data_available(ptr,18)) 
+bool get_payload(buffer_t *ptr, uint8_t *payload_out)
+{
+    if (ptr->size >= PACKET_LEN)
     {
-        // Peek first 2 bytes for header
-        uint8_t byte1 = peek_byte(ptr, ptr->tail);
-        uint8_t byte2 = peek_byte(ptr,ptr->tail + 1);
-        if (byte1 == HEADER_BYTE_1 && byte2 == HEADER_BYTE_2) {
+        uint8_t sync_0;
+        uint8_t sync_1;
+
+        if (rb_pop(ptr, &sync_0) != 0)
+        {
+            return false;
+        }
+
+        if (rb_pop(ptr, &sync_1) != 0)
+        {
+            return false;
+        }
+
+        if (sync_0 == HEADER_BYTE_1 && sync_1 == HEADER_BYTE_2)
+        {
+            // printf("\n");
+
             // Valid header found, copy payload
-            advance_tail(ptr, 2);
-            for (size_t i = 0; i < MESSAGE_LEN; ++i) {
-                payload_out[i] = peek_byte(ptr, ptr->tail + i);
+            for (uint8_t i = 0; i < (uint8_t)MESSAGE_LEN; i++)
+            {
+                if (rb_pop(ptr, payload_out + i) != 0)
+                {
+                    printf("pop fail\n");
+                    return false;
+                }
+                // printf("%i ", *(payload_out + i));
+
             }
-            advance_tail(ptr, MESSAGE_LEN);
+                // printf("\n");
+
             return true;
-        } else {
-            // printf("BAD H\n");
-            // Invalid header, skip 1 byte
-            advance_tail(ptr,1);
+        }
+        else
+        {
+            printf("BAD H\n");
+            rb_pop(ptr, NULL);
         }
     }
-    return false;
-}
 
+    return false;
+
+}
 
 void uart_task()
 {
 
-    uint8_t test_buf[16];
-    if (get_payload(&rx_buffer, (uint8_t*)&test_buf)) {
-        uint8_t* ptr = (uint8_t*)&test_buf;
-        unpack_buffer_to_g29(ptr,(uint8_t*)&report);
+    static uint8_t test_buf[MESSAGE_LEN];
+    uint8_t* ptr = (uint8_t*)&test_buf;
 
-        // if (report.PS == true)
-        // {
-        //     printf("PS is 0x%x\n", report.PS);
-        // }
+    if (get_payload(&rx_buffer, ptr)) {
+        unpack_buffer_to_g29(ptr,&report);
+
+        if (report.PS == true)
+        {
+            printf("PS is 0x%x\n", report.PS);
+        }
 
         // if (report.cross == true)
         // {
@@ -201,30 +204,6 @@ void uart_task()
 
             // Process payload
     }
-
-    // transport_t* t_ptr = (transport_t*)&rx_buffer.buffer;
-    // // if not empty
-    // if (rx_buffer.head != 0)
-    // {  
-    //     if (rx_buffer.head >= sizeof(t_ptr->header.sync_phrase) + MESSAGE_LEN)
-    //     {
-    //         if (t_ptr->header.sync_phrase != SYNC_PHRASE)
-    //         {
-    //             printf("sync incorrect\n");
-    //             reset_buffer(&rx_buffer);
-    //             return;
-    //         }
-    //         // for (uint8_t i = 0; i < MESSAGE_LEN; i++)
-    //         // {
-    //             // printf("0x%x\n",t_ptr->bytes[i]);
-    //         // }
-    //         unpack_buffer_to_g29((uint8_t*)&t_ptr->bytes,(uint8_t*)&report);
-
-    //         // printf("\n");
-    //         reset_buffer(&rx_buffer);
-    //     }
-
-    // }
 }
 
 
@@ -243,8 +222,6 @@ void hid_task() {
         return;
     }
 
-    // report.PS = report.select && report.start;
-
     if (memcmp(&prev_report, &report, sizeof(report))) {
         tud_hid_report(1, &report, sizeof(report));
         memcpy(&prev_report, &report, sizeof(report));
@@ -259,11 +236,6 @@ void hid_task() {
 }
 
 void wheel_init_task() {
-
-    // if (!initialized)
-    // {
-    //     initialized = true;
-    // }
 
     if (wheel_device && !initialized) {
         initialized = true;
@@ -309,8 +281,11 @@ int main() {
     report_init();
     tusb_init();
     stdio_init_all();
+
+    memset(&rx_buffer, 0, sizeof(buffer_t));
+    memset(&tx_buffer, 0, sizeof(buffer_t));
+
     setupuart();
-    // init_uart_test();
 
     while (1) {
         tuh_task();
@@ -455,7 +430,6 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
     } else {  // assume everything else is the controller we use for authentication
         auth_device = dev_addr;
         auth_instance = instance;
-        // printf("Got auth controller\n");
     }
 }
 

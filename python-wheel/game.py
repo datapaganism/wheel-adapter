@@ -1,9 +1,41 @@
 import pygame
-
-pygame.init()
-
+import threading
+import queue
 import serial
 from g29report import G29Report
+
+
+def read_uart(inputQueue):
+    while (True):
+        if (ser.inWaiting() > 0):
+            x = ser.read(ser.inWaiting())
+            inputQueue.put(x)
+
+
+def parse_ffb_packet(inputQueue):
+    if (inputQueue.qsize() > 0):
+        input_str = inputQueue.get()
+        if (len(input_str) == 9):
+        # This is weird, the header is split but the FFB packet inside look good to me
+            if (input_str[0] == SYNC[1] and input_str[8] == SYNC[0]):
+                input_str = input_str[1:-1]
+                for x in input_str:
+                    print(f"{hex(x)},",end="")
+                print("\n")
+
+
+def send_uart_packet():
+    packed = report.pack()
+    packed = SYNC + packed
+    x = ser.write(packed)
+
+def num_to_range(num, inMin, inMax, outMin, outMax):
+  return outMin + (float(num - inMin) / float(inMax - inMin) * (outMax
+                  - outMin))
+
+
+
+pygame.init()
 
 BAUDRATE = 921600
 BAUDRATE = 115200
@@ -12,18 +44,8 @@ ser = serial.Serial('/dev/ttyUSB0',baudrate=BAUDRATE)  # open serial port
 report = G29Report().get()
 
 # Reverse byte order
+# 161 54
 SYNC = bytearray([0xA1, 0x36])
-
-def send():
-    packed = report.pack()
-    packed = SYNC + packed
-    x = ser.write(packed)
-    # print(x)
-
-def num_to_range(num, inMin, inMax, outMin, outMax):
-  return outMin + (float(num - inMin) / float(inMax - inMin) * (outMax
-                  - outMin))
-
 
 # This is a simple class that will help us print to the screen.
 # It has nothing to do with the joysticks, just outputting the
@@ -51,6 +73,11 @@ class TextPrint:
 
 
 def main():
+
+    rx_uart_queue = queue.Queue()
+    read_uart_ffb_thread = threading.Thread(target=read_uart, args=(rx_uart_queue,), daemon=True)
+    read_uart_ffb_thread.start()
+
     # Set the width and height of the screen (width, height), and name the window.
     screen = pygame.display.set_mode((500, 1000))
     pygame.display.set_caption("Joystick example")
@@ -68,6 +95,9 @@ def main():
 
     done = False
     while not done:
+
+        parse_ffb_packet(rx_uart_queue)
+
         # Event processing step.
         # Possible joystick events: JOYAXISMOTION, JOYBALLMOTION, JOYBUTTONDOWN,
         # JOYBUTTONUP, JOYHATMOTION, JOYDEVICEADDED, JOYDEVICEREMOVED
@@ -257,13 +287,13 @@ def main():
 
             text_print.unindent()
 
-        send()
+        send_uart_packet()
 
         # Go ahead and update the screen with what we've drawn.
         pygame.display.flip()
 
         # Limit to 30 frames per second.
-        clock.tick(60)
+        clock.tick(30)
 
 
 if __name__ == "__main__":

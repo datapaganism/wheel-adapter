@@ -17,7 +17,7 @@
 #include "hardware/irq.h"
 
 
-
+#define FFB_PACKET_LENGTH 7
 
 
 void dump_g29_report(g29_report_t* report)
@@ -117,8 +117,8 @@ bool initialized = true;
 
 uint8_t get_buffer[64];
 uint8_t set_buffer[64];
-uint8_t ff_buf[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-uint8_t prev_ff_buf[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+uint8_t ff_buf[FFB_PACKET_LENGTH] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+uint8_t prev_ff_buf[FFB_PACKET_LENGTH] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
 g29_report_t report;
 g29_report_t prev_report;
@@ -135,6 +135,23 @@ const uint8_t output_0x03[] = {
 
 const uint8_t output_0xf3[] = { 0x0, 0x38, 0x38, 0, 0, 0, 0 };
 
+
+uint8_t emplace_ffb_packet_to_tx(buffer_t* b, uint8_t* payload, uint8_t payload_len)
+{
+    if ((sizeof(b->buffer) - b->size) >= (payload_len + sizeof(header_t)))
+    {
+        rb_push(b, HEADER_BYTE_0);
+        rb_push(b, HEADER_BYTE_1);
+        for (uint8_t i = 0; i < payload_len; i++)
+        {
+            rb_push(b, *(payload + i));
+        }
+
+        return 0;
+    }
+
+    return 1;
+}
 
 bool get_payload(buffer_t *b, uint8_t *payload_out)
 {
@@ -165,9 +182,6 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
 
         if (sync_0 == HEADER_BYTE_0 && sync_1 == HEADER_BYTE_1)
         {
-            // printf("\n");
-
-            // Valid header found, copy payload
             for (uint8_t i = 0; i < (uint8_t)MESSAGE_LEN; i++)
             {
                 if (rb_pop(b, payload_out + i) != 0)
@@ -175,18 +189,11 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
                     printf("pop fail\n");
                     return false;
                 }
-                // printf("%i ", *(payload_out + i));
 
             }
-                // printf("\n");
 
             return true;
         }
-        // else
-        // {
-        //     printf("BAD H\n");
-        //     rb_pop(b, NULL);
-        // }
     }
 
     return false;
@@ -207,15 +214,21 @@ void uart_task()
             printf("PS is 0x%x\n", report.PS);
         }
 
-        // if (report.cross == true)
-        // {
-        //     printf("cross is 0x%x\n", report.cross);
-        // }
-
-            // Process payload
     }
 }
 
+void write_ffb_buffer_out()
+{
+    if (tx_buffer.size >= FFB_PACKET_LENGTH + sizeof(header_t))
+    {
+        if (uart_is_writable(uart0))
+        {
+            uint8_t temp;
+            rb_pop(&tx_buffer, &temp);
+            uart_putc_raw(uart0, temp);
+        }
+    }
+}
 
 void report_init() {
     memset(&report, 0, sizeof(report));
@@ -241,6 +254,7 @@ void hid_task() {
         if (wheel_device) {
             tuh_hid_send_report(wheel_device, wheel_instance, 0, ff_buf, sizeof(ff_buf));
         }
+        emplace_ffb_packet_to_tx(&tx_buffer, (uint8_t*)&ff_buf, sizeof(ff_buf));
         memcpy(prev_ff_buf, ff_buf, sizeof(ff_buf));
     }
 }
@@ -302,6 +316,7 @@ int main() {
         tud_task();
         uart_task();
         hid_task();
+        write_ffb_buffer_out();
         auth_task();
         wheel_init_task();
     }

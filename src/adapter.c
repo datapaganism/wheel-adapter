@@ -136,31 +136,41 @@ const uint8_t output_0x03[] = {
 const uint8_t output_0xf3[] = { 0x0, 0x38, 0x38, 0, 0, 0, 0 };
 
 
-bool get_payload(buffer_t *ptr, uint8_t *payload_out)
+bool get_payload(buffer_t *b, uint8_t *payload_out)
 {
-    if (ptr->size >= PACKET_LEN)
+    while (b->size >= PACKET_LEN)
     {
         uint8_t sync_0;
         uint8_t sync_1;
 
-        if (rb_pop(ptr, &sync_0) != 0)
+        if (rb_pop(b, &sync_0) != 0)
         {
             return false;
         }
 
-        if (rb_pop(ptr, &sync_1) != 0)
+        if (sync_0 != HEADER_BYTE_0)
+        {
+            continue;
+        }
+
+        if (rb_pop(b, &sync_1) != 0)
         {
             return false;
         }
 
-        if (sync_0 == HEADER_BYTE_1 && sync_1 == HEADER_BYTE_2)
+        if (sync_1 != HEADER_BYTE_1)
+        {
+            continue;
+        }
+
+        if (sync_0 == HEADER_BYTE_0 && sync_1 == HEADER_BYTE_1)
         {
             // printf("\n");
 
             // Valid header found, copy payload
             for (uint8_t i = 0; i < (uint8_t)MESSAGE_LEN; i++)
             {
-                if (rb_pop(ptr, payload_out + i) != 0)
+                if (rb_pop(b, payload_out + i) != 0)
                 {
                     printf("pop fail\n");
                     return false;
@@ -172,11 +182,11 @@ bool get_payload(buffer_t *ptr, uint8_t *payload_out)
 
             return true;
         }
-        else
-        {
-            printf("BAD H\n");
-            rb_pop(ptr, NULL);
-        }
+        // else
+        // {
+        //     printf("BAD H\n");
+        //     rb_pop(b, NULL);
+        // }
     }
 
     return false;

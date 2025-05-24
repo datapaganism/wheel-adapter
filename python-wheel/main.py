@@ -6,6 +6,15 @@ from openffboard import OpenFFBoard
 import hid
 import time
 
+'''
+TODO
+Implement all other ffb types (spring, stop etc)
+Fix and improve the variable command
+Fix axis reading for controllers (pedals etc)
+Inputs are becoming more laggy now
+Code cleanup
+Test higher baud rates
+'''
 BAUDRATE = 921600
 BAUDRATE = 115200
 
@@ -32,23 +41,31 @@ class GameControllerInput:
         return self.axes
 
     def decode(self, report):
-        raw_buttons = report[
-            self.button_index_start : self.button_index_start + self.button_index_len
-        ]
-        raw_axes = report[
-            self.axes_index_start : self.axes_index_start + self.axes_index_len
-        ]
-        # Convert button states from bytes to a list of booleans
-        self.buttons = [
-            (raw_buttons[i // 8] & (1 << (i % 8))) != 0
-            for i in range(len(raw_buttons) * 8)
-        ]
+        
+        if (self.button_index_start != -1 and self.button_index_len != -1):
+            
+            raw_buttons = report[
+                self.button_index_start : self.button_index_start + self.button_index_len
+            ]
+            
+            # Convert button states from bytes to a list of booleans
+            self.buttons = [
+                (raw_buttons[i // 8] & (1 << (i % 8))) != 0
+                for i in range(len(raw_buttons) * 8)
+            ]
+        
+        if (self.axes_index_start != -1 and self.axes_index_len != -1):
+            raw_axes = report[
+                self.axes_index_start : self.axes_index_start + self.axes_index_len
+            ]
 
-        # Convert axis values (assuming they are 16-bit signed integers)
-        self.axes = [
-            int.from_bytes(raw_axes[i : i + 2], byteorder="little", signed=True)
-            for i in range(0, len(raw_axes), 2)
-        ]
+            # Convert axis values (assuming they are 16-bit signed integers)
+            AXIS_WIDTH = 2 # 16bit
+            self.axes = [
+                int.from_bytes(raw_axes[i : i + AXIS_WIDTH], byteorder="little", signed=False)
+                for i in range(0, len(raw_axes), AXIS_WIDTH)
+            ]
+        
 
 
 class ProController(GameControllerInput):
@@ -57,7 +74,11 @@ class ProController(GameControllerInput):
     axes_index_start = 7
     axes_index_len = 4
 
-
+class PedalsController(GameControllerInput):
+    button_index_start = -1
+    button_index_len = -1
+    axes_index_start = 0
+    axes_index_len = 2 * 5 # 5 16bit axes
 
 #                  161    54
 SYNC = bytearray([0xA1, 0x36])
@@ -99,12 +120,16 @@ def parse_ffb_packet(inputQueue, ffboard):
                 dir = -1
                 if pos >= 0:
                     dir *= -1
-                ffboard.writeData(FX_MANAGER,0,0x4,data=dir*L1*30,adr=effects[0]) # Set constant foce magnitude
-            else:
-                print(cmd)
-                for x in g29_ffb_packet:
-                    print(f"{hex(x)},",end="")
-                print("\n")
+                ffboard.writeData(FX_MANAGER,0,0x4,data=dir*L1*50,adr=effects[0]) # Set constant foce magnitude
+            # else:
+            #     print(cmd)
+            #     for x in g29_ffb_packet:
+            #         print(f"{hex(x)},",end="")
+            #     print("\n")
+                
+            # for x in g29_ffb_packet:
+            #     print(f"{hex(x)},",end="")
+            # print("\n")
 
 
 def send_g29_packet():
@@ -120,11 +145,11 @@ def num_to_range(num, inMin, inMax, outMin, outMax):
 
 
 
-def process_pro_controller(pro, device, report):
+def process_pro_controller(inst, device, report):
     device_hid_report = device.read(64)  # Read 64 bytes
     if device_hid_report:
-        pro.decode(device_hid_report)
-        buttons = pro.get_buttons()
+        inst.decode(device_hid_report)
+        buttons = inst.get_buttons()
         
         report.cross        = buttons[2]
         report.circle       = buttons[3]
@@ -157,6 +182,23 @@ def process_pro_controller(pro, device, report):
             final = 0b0010
         report.dpad = final
 
+
+def process_pedals_controller(inst, device, report):
+    device_hid_report = device.read(64)  # Read 64 bytes
+    if device_hid_report:
+        inst.decode(device_hid_report)
+        axes = inst.get_axis()
+        # print(axes)
+        
+        throt               = axes[2]
+        brake               = axes[3]
+        
+        throt = num_to_range(throt,0, 0xFFFF, 0xFFFF, 0)
+        report.throttle = int(throt)
+        brake = num_to_range(brake, 0, 0xFFFF, 0xFFFF, 0)
+        report.brake = int(brake)
+        
+
 pos = 0
 
 effects = []
@@ -181,21 +223,26 @@ report = G29Report().get()
 def main():
     
     pro = ProController()
-    device = hid.device()
-    device.open(0x057E, 0x2009)
+    pro_device = hid.device()
+    pro_device.open(0x057E, 0x2009)
     
-    dev = OpenFFBoard(OpenFFBoard.findDevices()[0])
-    dev.open()
-    dev.registerReadCallback(readDataCB)
+    pedals = PedalsController()
+    pedals_device = hid.device()
+    pedals_device.open(0x1209, 0xa136)
     
-    dev.readData(FX_MANAGER,0,1) # Reset FFB
+    
+    ffboard_device = OpenFFBoard(OpenFFBoard.findDevices()[0])
+    ffboard_device.open()
+    ffboard_device.registerReadCallback(readDataCB)
+    
+    ffboard_device.readData(FX_MANAGER,0,1) # Reset FFB
     # effects = [] # When reset all effects are reset
 
-    dev.writeData(FX_MANAGER,0,0,1) # Enable FFB
+    ffboard_device.writeData(FX_MANAGER,0,0,1) # Enable FFB
     
-    dev.writeData(FX_MANAGER,0,2,1) # Make new constant force (1) effect
+    ffboard_device.writeData(FX_MANAGER,0,2,1) # Make new constant force (1) effect
     print(effects) # We should have a new effect now
-    dev.writeData(FX_MANAGER,0,0x5,data=1,adr=effects[0]) #  Enable effect
+    ffboard_device.writeData(FX_MANAGER,0,0x5,data=1,adr=effects[0]) #  Enable effect
 
     
     # dev.writeData(FX_MANAGER,0,0x4,data=4000,adr=effects[0]) # Set constant foce magnitude
@@ -213,24 +260,26 @@ def main():
     try:
         while True:
             
-            dev.readData(AXIS,0,cmd=AXIS_POS_COMMAND) # read axis
-            
+       
+            ffboard_device.readData(AXIS,0,cmd=AXIS_POS_COMMAND) # read axis
             report.wheel = int(num_to_range(pos,-32000, 32000, 0xFFFF, 0))
 
+            process_pro_controller(pro,pro_device,report)
+            process_pedals_controller(pedals,pedals_device,report)
+                     
             
-            process_pro_controller(pro,device,report)
-                
-            parse_ffb_packet(rx_uart_queue, dev)
+            parse_ffb_packet(rx_uart_queue, ffboard_device)
 
             send_g29_packet()
         
-            # time.sleep(0.016)
+            # time.sleep(1/200)
     except KeyboardInterrupt:
         pass
     finally:
-        dev.writeData(FX_MANAGER,0,0,0) # Disable FFB
-        dev.close()
-        device.close()
+        ffboard_device.writeData(FX_MANAGER,0,0,0) # Disable FFB
+        ffboard_device.close()
+        pro_device.close()
+        pedals_device.close()
 
 
 

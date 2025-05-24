@@ -22,11 +22,14 @@ BAUDRATE = 115200
 FX_MANAGER = 0xA03
 AXIS = 0xA01
 AXIS_POS_COMMAND = 0xE
+AXIS_ROTATION_COMMAND = 0x1
 
+MASTER_SCALE = 0.5
 #                  161    54
 SYNC = bytearray([0xA1, 0x36])
 
 pos = 0
+rot_deg = 0
 report_prev = None
 effects = []
 ser = serial.Serial(
@@ -145,8 +148,10 @@ class ProController(GameControllerInput):
             throt = buttons[7]
             brake = buttons[23]
 
-            report.throttle = int(num_to_range(throt, 0, 1, 0, 0xFFFF))
-            report.brake = int(num_to_range(brake, 0, 1, 0, 0xFFFF))
+            # if (report.throttle )
+            # report.throttle = int(num_to_range(throt, 0, 1, 0xFFFF, 0))
+            
+            # report.brake = int(num_to_range(brake, 0, 1, 0xFFFF, 0))
 
             dpad = buttons[16 : 16 + 4]
             ddown = dpad[0]
@@ -185,8 +190,11 @@ class PedalsController(GameControllerInput):
 
             throt = axes[0]
             brake = axes[1]
+            clutch = axes[2]
             report.throttle = int(num_to_range(throt, -(1 << 15), (1 << 15), 0xFFFF, 0))
             report.brake = int(num_to_range(brake, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            # report.clutch = int(num_to_range(clutch, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            
 
 
 def read_uart_thread(inputQueue):
@@ -195,13 +203,20 @@ def read_uart_thread(inputQueue):
             x = ser.read(ser.inWaiting())
             inputQueue.put(x)
         time.sleep(0.01)
-        
 
 
 def read_controller_thread(device: GameControllerInput, report):
     while device.running:
         device.process_inputs(report)
         time.sleep(0.01)
+
+
+def getSignedNumber(number, bitLength):
+    mask = (2**bitLength) - 1
+    if number & (1 << (bitLength - 1)):
+        return number | ~mask
+    else:
+        return number & mask
 
 
 def parse_ffb_packet(inputQueue, ffboard):
@@ -218,34 +233,80 @@ def parse_ffb_packet(inputQueue, ffboard):
 
     if g29_ffb_packet != None:
         cmd = g29_ffb_packet[0] & 0b00001111
-        force_slot = (g29_ffb_packet[0] & 0b11110000) > 4
+        force_slot = (g29_ffb_packet[0] & 0b11110000) >> 4
 
         if cmd == 0x1:  # Download and Play Force
             force_type = g29_ffb_packet[1]
             if force_type == 0x8:  # Variable
+
+                # L1 and L2 look signed to me
                 L1 = g29_ffb_packet[2]
                 L2 = g29_ffb_packet[3]
-                T1 = (g29_ffb_packet[4] & 0b11110000) > 4
+                T1 = (g29_ffb_packet[4] & 0b11110000) >> 4
                 S1 = g29_ffb_packet[4] & 0b00001111
-                T2 = (g29_ffb_packet[5] & 0b11110000) > 4
+                T2 = (g29_ffb_packet[5] & 0b11110000) >> 4
                 S2 = g29_ffb_packet[5] & 0b00001111
                 D1 = g29_ffb_packet[6] & 0b00000001
                 D2 = g29_ffb_packet[6] & 0b00010000
-                dir = -1
-                if pos >= 0:
-                    dir *= -1
-                ffboard.writeData(
-                    FX_MANAGER, 0, 0x4, data=dir * L1 * 50, adr=effects[0]
-                )  # Set constant foce magnitude
-            # else:
-            #     print(cmd)
-            #     for x in g29_ffb_packet:
-            #         print(f"{hex(x)},",end="")
-            #     print("\n")
+                L1 = getSignedNumber(L1, 8)
 
-            # for x in g29_ffb_packet:
-            #     print(f"{hex(x)},",end="")
-            # print("\n")
+                ffboard.writeData(
+                    FX_MANAGER,
+                    0,
+                    0x4,
+                    data=int(((L1 * 50) * MASTER_SCALE)),
+                    adr=effects[0],
+                )  # Set constant foce magnitude
+        elif cmd == 0x3:  # Stop Force
+            pass
+            #  ffboard.writeData(
+            #         FX_MANAGER, 0, 0x1, data=0, adr=effects[0]
+            #     )
+        elif cmd == 0x8 and force_slot == 0b1111:
+            print("extended command mode")
+            ext_cmd = g29_ffb_packet[1]
+            match ext_cmd:
+                case 0x1:
+                    print("EXT Change Mode to Driving Force Pro")
+                case 0x2:
+                    print("EXT Change Wheel Range to 200 Degrees")
+                    ffboard.writeData(
+                        AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
+                    )
+
+                case 0x3:
+                    print("EXT Change Wheel Range to 900 Degrees")
+                    ffboard.writeData(
+                        AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
+                    )
+
+                case 0x9:
+                    print("EXT Change Device Mode")
+                case 0x0A:
+                    print("EXT Revert Identity")
+                case 0x10:
+                    print("EXT Switch to G25 Identity with USB Detach")
+                case 0x11:
+                    print("EXT Switch to G25 Identity without USB Detach")
+                case 0x12:
+                    print("EXT Set RPM LEDs")
+                case 0x81:
+                    print("EXT Wheel Range Change")
+                    target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
+                    target_range = clamp(target_range, 40, 900)
+                    ffboard.writeData(
+                        AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
+                    )
+
+        else:
+            print(f"cmd {hex(cmd)} fX {hex(force_slot)}")
+            for x in g29_ffb_packet:
+                print(f"{hex(x)},", end="")
+            print("\n")
+
+        # for x in g29_ffb_packet:
+        #     print(f"{hex(x)},",end="")
+        # print("\n")
 
 
 def send_g29_report():
@@ -272,7 +333,25 @@ def readDataCB(cmdtype, cls, inst, cmd, val, addr):
         global pos
         pos = val
 
+    if cls == AXIS and cmd == AXIS_ROTATION_COMMAND:
+        global rot_deg
+        rot_deg = val
+
     # print(f"Type: {cmdtype}, Class: {cls}.{inst}: cmd: {cmd}, val: {val}, addr: {addr}")
+
+
+# ffboard_device.readData(AXIS,0,cmd=AXIS_ROTATION_COMMAND)
+# ffboard_device.writeData(AXIS,0,cmd=AXIS_ROTATION_COMMAND,data=360)
+
+
+def clamp(value, min, max):
+    if value > max:
+        value = max
+
+    if value < min:
+        value = min
+
+    return value
 
 
 def main():
@@ -300,7 +379,7 @@ def main():
     # dev.writeData(FX_MANAGER,0,0x4,data=-2000,adr=effects[0]) # Set constant foce magnitude
     # time.sleep(1)
     # dev.writeData(FX_MANAGER,0,0x4,data=0,adr=effects[0]) # Set constant foce magnitude 0
-    # time.sleep(5) 
+    # time.sleep(5)
     # exit(0)
 
     rx_uart_queue = queue.Queue()
@@ -311,26 +390,24 @@ def main():
     read_pro_controller_thread = threading.Thread(
         target=read_controller_thread, args=(pro, report), daemon=True
     )
-    # read_pro_controller_thread.start()
     read_pedal_controller_thread = threading.Thread(
         target=read_controller_thread, args=(pedals, report), daemon=True
     )
-    read_pedal_controller_thread.start()
 
+    read_pro_controller_thread.start()
+    read_pedal_controller_thread.start()
     read_uart_ffb_thread.start()
+
+    ffboard_device.writeData(AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900)
 
     try:
         while True:
-
-            ffboard_device.readData(AXIS,0,cmd=AXIS_POS_COMMAND) # read axis
+            ffboard_device.readData(AXIS, 0, cmd=AXIS_ROTATION_COMMAND)
+            ffboard_device.readData(AXIS, 0, cmd=AXIS_POS_COMMAND)  # read axis
             global pos
-            if (pos > (1 << 15)):
-                pos = (1 << 15)
-            
-            if (pos < -(1 << 15)):
-                pos = -(1<< 15)    
-            
-            report.wheel = int(num_to_range(pos,-(1 << 15),(1 << 15), 0xFFFF, 0))
+            pos = clamp(pos, -(1 << 15), (1 << 15))
+
+            report.wheel = int(num_to_range(pos, -(1 << 15), (1 << 15), 0xFFFF, 0))
 
             parse_ffb_packet(rx_uart_queue, ffboard_device)
 

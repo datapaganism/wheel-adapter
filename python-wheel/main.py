@@ -23,13 +23,33 @@ AXIS = 0xA01
 AXIS_POS_COMMAND = 0xE
 
 class GameControllerInput:
+    connected = False
+    hid_device = None
     buttons = []
     axes = []
+    vid = 0
+    pid = 0
+    
 
     button_index_start = 0
     button_index_len = 0
     axes_index_start = 0
     axes_index_len = 0
+    
+    def process_inputs(self, report):
+        pass
+    
+    def __init__(self):
+        try:
+            self.hid_device = hid.device()
+            self.hid_device.open(self.vid, self.pid)
+            self.connected = True
+        except:
+            print("Not connected")
+        pass
+
+    def close(self):
+        self.hid_device.close()
 
     def __repr__(self):
         return f"Buttons: {self.buttons}, Axes: {self.axes}"
@@ -41,6 +61,13 @@ class GameControllerInput:
         return self.axes
 
     def decode(self, report):
+        
+        # for x in report:
+        #     hex_padded = f"{x:02x}"  ## Format specifier for 2-digit hex
+        #     print(f"{hex_padded}, ", end="")
+            
+        #     # print(f"{y:04x},",end="")
+        # print("\n")
         
         if (self.button_index_start != -1 and self.button_index_len != -1):
             
@@ -58,6 +85,7 @@ class GameControllerInput:
             raw_axes = report[
                 self.axes_index_start : self.axes_index_start + self.axes_index_len
             ]
+            # print(raw_axes)
 
             # Convert axis values (assuming they are 16-bit signed integers)
             AXIS_WIDTH = 2 # 16bit
@@ -65,20 +93,88 @@ class GameControllerInput:
                 int.from_bytes(raw_axes[i : i + AXIS_WIDTH], byteorder="little", signed=False)
                 for i in range(0, len(raw_axes), AXIS_WIDTH)
             ]
+            # for x in self.axes:
+            #     x &= (1 < 10)
+            # print(self.axes)
+        
         
 
 
 class ProController(GameControllerInput):
+    vid = 0x057E
+    pid = 0x2009
     button_index_start = 3
     button_index_len = 3
     axes_index_start = 7
     axes_index_len = 4
+    
+    def process_inputs(self, report):
+        if not self.connected:
+            return 
+        
+        device_hid_report = self.hid_device.read(64)  # Read 64 bytes
+        if device_hid_report:
+            self.decode(device_hid_report)
+            buttons = self.get_buttons()
+            
+            report.cross        = buttons[2]
+            report.circle       = buttons[3]
+            report.triangle     = buttons[1]
+            report.square       = buttons[0]
+            
+            report.PS           = buttons[12]
+            report.start        = buttons[9]
+            throt               = buttons[7]
+            brake               = buttons[23]
+            
+            throt = num_to_range(throt,0, 1, 0xFFFF, 0)
+            report.throttle = int(throt)
+            brake = num_to_range(brake, 0, 1, 0xFFFF, 0)
+            report.brake = int(brake)
+            
+            dpad = buttons[16:16+4]
+            ddown   = dpad[0]
+            dup     = dpad[1]
+            dleft   = dpad[3]
+            dright  = dpad[2]
+            final = 0b1000
+            if (dup):
+                final = 0b0000
+            if (ddown):
+                final = 0b0100
+            if (dleft):
+                final = 0b0110
+            if (dright):
+                final = 0b0010
+            report.dpad = final
 
 class PedalsController(GameControllerInput):
+    vid = 0x1209
+    pid = 0xa136
     button_index_start = -1
     button_index_len = -1
     axes_index_start = 0
-    axes_index_len = 2 * 5 # 5 16bit axes
+    axes_index_len = 2 * 6 # 6 16bit axes
+    
+    def process_inputs(self, report):
+        if not self.connected:
+            print("Not connected")
+            return 
+        
+        device_hid_report = self.hid_device.read(64)  # Read 64 bytes        
+        if device_hid_report:
+            print(device_hid_report)
+            self.decode(device_hid_report)
+            axes = self.get_axis()
+            
+            throt               = axes[2]
+            brake               = axes[3]
+            
+            throt = num_to_range(throt,0, 0xFFFF, 0xFFFF, 0)
+            report.throttle = int(throt)
+            brake = num_to_range(brake, 0, 0xFFFF, 0xFFFF, 0)
+            report.brake = int(brake)
+            
 
 #                  161    54
 SYNC = bytearray([0xA1, 0x36])
@@ -132,72 +228,24 @@ def parse_ffb_packet(inputQueue, ffboard):
             # print("\n")
 
 
-def send_g29_packet():
+report_prev = None
+
+def send_g29_report():
+    global report_prev
     packed = report.pack()
+    if (packed == report_prev):
+        return
+    
+    report_prev = packed
     packed = SYNC + packed
     x = ser.write(packed)
+    
     
 
 def num_to_range(num, inMin, inMax, outMin, outMax):
   return outMin + (float(num - inMin) / float(inMax - inMin) * (outMax
                   - outMin))
 
-
-
-
-def process_pro_controller(inst, device, report):
-    device_hid_report = device.read(64)  # Read 64 bytes
-    if device_hid_report:
-        inst.decode(device_hid_report)
-        buttons = inst.get_buttons()
-        
-        report.cross        = buttons[2]
-        report.circle       = buttons[3]
-        report.triangle     = buttons[1]
-        report.square       = buttons[0]
-        
-        report.PS           = buttons[12]
-        report.start        = buttons[9]
-        throt               = buttons[7]
-        brake               = buttons[23]
-        
-        throt = num_to_range(throt,0, 1, 0xFFFF, 0)
-        report.throttle = int(throt)
-        brake = num_to_range(brake, 0, 1, 0xFFFF, 0)
-        report.brake = int(brake)
-        
-        dpad = buttons[16:16+4]
-        ddown   = dpad[0]
-        dup     = dpad[1]
-        dleft   = dpad[3]
-        dright  = dpad[2]
-        final = 0b1000
-        if (dup):
-            final = 0b0000
-        if (ddown):
-            final = 0b0100
-        if (dleft):
-            final = 0b0110
-        if (dright):
-            final = 0b0010
-        report.dpad = final
-
-
-def process_pedals_controller(inst, device, report):
-    device_hid_report = device.read(64)  # Read 64 bytes
-    if device_hid_report:
-        inst.decode(device_hid_report)
-        axes = inst.get_axis()
-        # print(axes)
-        
-        throt               = axes[2]
-        brake               = axes[3]
-        
-        throt = num_to_range(throt,0, 0xFFFF, 0xFFFF, 0)
-        report.throttle = int(throt)
-        brake = num_to_range(brake, 0, 0xFFFF, 0xFFFF, 0)
-        report.brake = int(brake)
-        
 
 pos = 0
 
@@ -222,13 +270,8 @@ report = G29Report().get()
 
 def main():
     
-    pro = ProController()
-    pro_device = hid.device()
-    pro_device.open(0x057E, 0x2009)
-    
     pedals = PedalsController()
-    pedals_device = hid.device()
-    pedals_device.open(0x1209, 0xa136)
+    pro = ProController()
     
     
     ffboard_device = OpenFFBoard(OpenFFBoard.findDevices()[0])
@@ -264,13 +307,13 @@ def main():
             ffboard_device.readData(AXIS,0,cmd=AXIS_POS_COMMAND) # read axis
             report.wheel = int(num_to_range(pos,-32000, 32000, 0xFFFF, 0))
 
-            process_pro_controller(pro,pro_device,report)
-            process_pedals_controller(pedals,pedals_device,report)
+            pro.process_inputs(report)
+            pedals.process_inputs(report)
                      
             
             parse_ffb_packet(rx_uart_queue, ffboard_device)
-
-            send_g29_packet()
+            
+            send_g29_report()
         
             # time.sleep(1/200)
     except KeyboardInterrupt:
@@ -278,8 +321,8 @@ def main():
     finally:
         ffboard_device.writeData(FX_MANAGER,0,0,0) # Disable FFB
         ffboard_device.close()
-        pro_device.close()
-        pedals_device.close()
+        pro.close()
+        pedals.close()
 
 
 

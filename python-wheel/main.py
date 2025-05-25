@@ -239,8 +239,8 @@ class PedalsController(GameControllerInput):
             throt = axes[0]
             brake = axes[1]
             clutch = axes[2]
-            report.throttle = int(num_to_range(throt, -(1 << 15), (1 << 15), 0xFFFF, 0))
-            report.brake = int(num_to_range(brake, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            report.throttle = int(map_num(throt, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            report.brake = int(map_num(brake, -(1 << 15), (1 << 15), 0xFFFF, 0))
             # report.clutch = int(num_to_range(clutch, -(1 << 15), (1 << 15), 0xFFFF, 0))
 
 
@@ -293,11 +293,18 @@ def parse_ffb_packet(inputQueue, ffboard):
                     D2 = g29_ffb_packet[6] & 0b00010000
                     L1 = unsigned_to_signed(L1, 8)
 
+                    if (T1 != 0 or S1 != 0 or D1 != 0):
+                        print(f"T1 {T1} S1 {S1} D1 {D1}")
+
+                    
+                    ratio_to_max = abs(pos) / (1 << 15)                    
+                    final = map_num(L1, -(1<<7), (1 << 7), -(1<<15), (1<<15))
+
                     ffboard.writeData(
                         FX_MANAGER,
                         0,
                         0x4,
-                        data=int(((L1 * 50) * MASTER_SCALE)),
+                        data=int(((final) * MASTER_SCALE * ratio_to_max)),
                         adr=effects[0],
                     )  # Set constant foce magnitude
             case G29_COMMAND.Stop_Force:
@@ -363,7 +370,7 @@ def send_g29_report():
     x = ser.write(packed)
 
 
-def num_to_range(num, inMin, inMax, outMin, outMax):
+def map_num(num, inMin, inMax, outMin, outMax):
     return outMin + (float(num - inMin) / float(inMax - inMin) * (outMax - outMin))
 
 
@@ -452,7 +459,7 @@ def main():
             global pos
             pos = clamp(pos, -(1 << 15), (1 << 15))
 
-            report.wheel = int(num_to_range(pos, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            report.wheel = int(map_num(pos, -(1 << 15), (1 << 15), 0xFFFF, 0))
 
             parse_ffb_packet(rx_uart_queue, ffboard_device)
 

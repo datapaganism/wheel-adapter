@@ -1,10 +1,11 @@
 import threading
 import queue
 import serial
-from g29report import G29Report
-from openffboard import OpenFFBoard
 import hid
 import time
+from enum import Enum
+from g29report import G29Report
+from openffboard import OpenFFBoard
 
 """
 TODO
@@ -24,10 +25,11 @@ AXIS = 0xA01
 AXIS_POS_COMMAND = 0xE
 AXIS_ROTATION_COMMAND = 0x1
 
-MASTER_SCALE = 0.5
+MASTER_SCALE = 1.0
 #                  161    54
 SYNC = bytearray([0xA1, 0x36])
 
+running = True
 pos = 0
 rot_deg = 0
 report_prev = None
@@ -39,7 +41,45 @@ ser = serial.Serial(
 report = G29Report().get()
 
 
+class FORCE_TYPE(Enum):
+    Constant = 0x00
+    Spring = 0x01
+    Damper = 0x02
+    Auto_Centering_Spring = 0x03
+    Sawtooth_Up = 0x04
+    Sawtooth_Down = 0x05
+    Trapezoid = 0x06
+    Rectangle = 0x07
+    Variable = 0x08
+    Ramp = 0x09
+    Square_Wave = 0x0A
+    High_Resolution_Spring = 0x0B
+    High_Resolution_Damper = 0x0C
+    High_Resolution_Auto_Centering_Spring = 0x0D
+    Friction = 0x0E
+
+
+class G29_COMMAND(Enum):
+    Download_Force = 0x00
+    Download_and_Play_Force = 0x01
+    Play_Force = 0x02
+    Stop_Force = 0x03
+    Default_Spring_On = 0x04
+    Default_Spring_Off = 0x05
+    Turn_on_Normal_Mode = 0x08
+    Set_LED = 0x09
+    Set_Watchdog = 0x0A
+    Turn_on_Raw_Mode = 0x0B
+    Refresh_Force = 0x0C
+    Fixed_Time_Loop = 0x0D
+    Set_Default_Spring = 0x0E
+    Set_Dead_Band = 0x0F
+    Extended_Command = 0xF8
+
+
 class GameControllerInput:
+    manufacturer_string = ""
+    product_string = ""
     running = True
     connected = False
     hid_device = None
@@ -61,8 +101,13 @@ class GameControllerInput:
             self.hid_device = hid.device()
             self.hid_device.open(self.vid, self.pid)
             self.connected = True
+            self.manufacturer_string = self.hid_device.get_manufacturer_string()
+            self.product_string = self.hid_device.get_product_string()
+            print(f"Connected to {self.manufacturer_string} {self.product_string}")
+
         except:
             print("Not connected")
+            raise
         pass
 
     def close(self):
@@ -79,6 +124,14 @@ class GameControllerInput:
 
     def stop(self):
         self.running = False
+
+    def thread_job(self, report):
+        while self.running:
+            try:
+                self.process_inputs(report)
+            except:
+                print(f"{self.product_string} FAILED to process inputs")
+            time.sleep(0.01)
 
     def decode(self, report, signed=False):
 
@@ -145,13 +198,8 @@ class ProController(GameControllerInput):
 
             report.PS = buttons[12]
             report.start = buttons[9]
-            throt = buttons[7]
-            brake = buttons[23]
-
-            # if (report.throttle )
-            # report.throttle = int(num_to_range(throt, 0, 1, 0xFFFF, 0))
-            
-            # report.brake = int(num_to_range(brake, 0, 1, 0xFFFF, 0))
+            # report.throttle = int(num_to_range(buttons[7], 0, 1, 0xFFFF, 0))
+            # report.brake = int(num_to_range(buttons[23], 0, 1, 0xFFFF, 0))
 
             dpad = buttons[16 : 16 + 4]
             ddown = dpad[0]
@@ -194,24 +242,18 @@ class PedalsController(GameControllerInput):
             report.throttle = int(num_to_range(throt, -(1 << 15), (1 << 15), 0xFFFF, 0))
             report.brake = int(num_to_range(brake, -(1 << 15), (1 << 15), 0xFFFF, 0))
             # report.clutch = int(num_to_range(clutch, -(1 << 15), (1 << 15), 0xFFFF, 0))
-            
 
 
 def read_uart_thread(inputQueue):
-    while True:
+    global running
+    while running:
         if ser.inWaiting() > 0:
             x = ser.read(ser.inWaiting())
             inputQueue.put(x)
         time.sleep(0.01)
 
 
-def read_controller_thread(device: GameControllerInput, report):
-    while device.running:
-        device.process_inputs(report)
-        time.sleep(0.01)
-
-
-def getSignedNumber(number, bitLength):
+def unsigned_to_signed(number, bitLength):
     mask = (2**bitLength) - 1
     if number & (1 << (bitLength - 1)):
         return number | ~mask
@@ -235,74 +277,75 @@ def parse_ffb_packet(inputQueue, ffboard):
         cmd = g29_ffb_packet[0] & 0b00001111
         force_slot = (g29_ffb_packet[0] & 0b11110000) >> 4
 
-        if cmd == 0x1:  # Download and Play Force
-            force_type = g29_ffb_packet[1]
-            if force_type == 0x8:  # Variable
+        match (G29_COMMAND(cmd)):
+            case G29_COMMAND.Download_and_Play_Force:
+                force_type = g29_ffb_packet[1]
+                if force_type == 0x8:  # Variable
 
-                # L1 and L2 look signed to me
-                L1 = g29_ffb_packet[2]
-                L2 = g29_ffb_packet[3]
-                T1 = (g29_ffb_packet[4] & 0b11110000) >> 4
-                S1 = g29_ffb_packet[4] & 0b00001111
-                T2 = (g29_ffb_packet[5] & 0b11110000) >> 4
-                S2 = g29_ffb_packet[5] & 0b00001111
-                D1 = g29_ffb_packet[6] & 0b00000001
-                D2 = g29_ffb_packet[6] & 0b00010000
-                L1 = getSignedNumber(L1, 8)
+                    # L1 and L2 look signed to me
+                    L1 = g29_ffb_packet[2]
+                    L2 = g29_ffb_packet[3]
+                    T1 = (g29_ffb_packet[4] & 0b11110000) >> 4
+                    S1 = g29_ffb_packet[4] & 0b00001111
+                    T2 = (g29_ffb_packet[5] & 0b11110000) >> 4
+                    S2 = g29_ffb_packet[5] & 0b00001111
+                    D1 = g29_ffb_packet[6] & 0b00000001
+                    D2 = g29_ffb_packet[6] & 0b00010000
+                    L1 = unsigned_to_signed(L1, 8)
 
-                ffboard.writeData(
-                    FX_MANAGER,
-                    0,
-                    0x4,
-                    data=int(((L1 * 50) * MASTER_SCALE)),
-                    adr=effects[0],
-                )  # Set constant foce magnitude
-        elif cmd == 0x3:  # Stop Force
-            pass
+                    ffboard.writeData(
+                        FX_MANAGER,
+                        0,
+                        0x4,
+                        data=int(((L1 * 50) * MASTER_SCALE)),
+                        adr=effects[0],
+                    )  # Set constant foce magnitude
+            case G29_COMMAND.Stop_Force:
+                print("not implemented")
+                pass
             #  ffboard.writeData(
             #         FX_MANAGER, 0, 0x1, data=0, adr=effects[0]
             #     )
-        elif cmd == 0x8 and force_slot == 0b1111:
-            print("extended command mode")
-            ext_cmd = g29_ffb_packet[1]
-            match ext_cmd:
-                case 0x1:
-                    print("EXT Change Mode to Driving Force Pro")
-                case 0x2:
-                    print("EXT Change Wheel Range to 200 Degrees")
-                    ffboard.writeData(
-                        AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
-                    )
+            case G29_COMMAND.Turn_on_Normal_Mode:
+                if force_slot == 0b1111:
+                    ext_cmd = g29_ffb_packet[1]
+                    match ext_cmd:
+                        case 0x1:
+                            print("EXT Change Mode to Driving Force Pro")
+                        case 0x2:
+                            print("EXT Change Wheel Range to 200 Degrees")
+                            ffboard.writeData(
+                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
+                            )
 
-                case 0x3:
-                    print("EXT Change Wheel Range to 900 Degrees")
-                    ffboard.writeData(
-                        AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
-                    )
+                        case 0x3:
+                            print("EXT Change Wheel Range to 900 Degrees")
+                            ffboard.writeData(
+                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
+                            )
 
-                case 0x9:
-                    print("EXT Change Device Mode")
-                case 0x0A:
-                    print("EXT Revert Identity")
-                case 0x10:
-                    print("EXT Switch to G25 Identity with USB Detach")
-                case 0x11:
-                    print("EXT Switch to G25 Identity without USB Detach")
-                case 0x12:
-                    print("EXT Set RPM LEDs")
-                case 0x81:
-                    print("EXT Wheel Range Change")
-                    target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
-                    target_range = clamp(target_range, 40, 900)
-                    ffboard.writeData(
-                        AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
-                    )
-
-        else:
-            print(f"cmd {hex(cmd)} fX {hex(force_slot)}")
-            for x in g29_ffb_packet:
-                print(f"{hex(x)},", end="")
-            print("\n")
+                        case 0x9:
+                            print("EXT Change Device Mode")
+                        case 0x0A:
+                            print("EXT Revert Identity")
+                        case 0x10:
+                            print("EXT Switch to G25 Identity with USB Detach")
+                        case 0x11:
+                            print("EXT Switch to G25 Identity without USB Detach")
+                        case 0x12:
+                            print("EXT Set RPM LEDs")
+                        case 0x81:
+                            print("EXT Wheel Range Change")
+                            target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
+                            target_range = clamp(target_range, 40, 900)
+                            ffboard.writeData(
+                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
+                            )
+            case _:
+                print(f"cmd {hex(cmd)} fX {hex(force_slot)}")
+                for x in g29_ffb_packet:
+                    print(f"{hex(x)},", end="")
+                print("\n")
 
         # for x in g29_ffb_packet:
         #     print(f"{hex(x)},",end="")
@@ -356,10 +399,11 @@ def clamp(value, min, max):
 
 def main():
 
-    pedals = PedalsController()
-    pro = ProController()
-
+    controllers: GameControllerInput = [PedalsController(), ProController()]
+    threads = []
+    rx_uart_queue = queue.Queue()
     ffboard_device = OpenFFBoard(OpenFFBoard.findDevices()[0])
+
     ffboard_device.open()
     ffboard_device.registerReadCallback(readDataCB)
 
@@ -382,26 +426,27 @@ def main():
     # time.sleep(5)
     # exit(0)
 
-    rx_uart_queue = queue.Queue()
+    for control in controllers:
+        thread = threading.Thread(
+            target=control.thread_job,
+            args=(report,),
+            daemon=False,
+            name=control.product_string,
+        )
+        thread.start()
+        threads.append(thread)
+
     read_uart_ffb_thread = threading.Thread(
         target=read_uart_thread, args=(rx_uart_queue,), daemon=True
     )
 
-    read_pro_controller_thread = threading.Thread(
-        target=read_controller_thread, args=(pro, report), daemon=True
-    )
-    read_pedal_controller_thread = threading.Thread(
-        target=read_controller_thread, args=(pedals, report), daemon=True
-    )
-
-    read_pro_controller_thread.start()
-    read_pedal_controller_thread.start()
     read_uart_ffb_thread.start()
 
     ffboard_device.writeData(AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900)
+    global running
 
     try:
-        while True:
+        while running:
             ffboard_device.readData(AXIS, 0, cmd=AXIS_ROTATION_COMMAND)
             ffboard_device.readData(AXIS, 0, cmd=AXIS_POS_COMMAND)  # read axis
             global pos
@@ -415,14 +460,19 @@ def main():
 
             time.sleep(0.01)
     except KeyboardInterrupt:
+        print("Bye")
+        running = False
         pass
     finally:
         ffboard_device.writeData(FX_MANAGER, 0, 0, 0)  # Disable FFB
         ffboard_device.close()
-        pro.stop()
-        pedals.stop()
-        pro.close()
-        pedals.close()
+
+        for c in controllers:
+            c.stop()
+            c.close()
+
+        for t in threads:
+            t.join()
 
 
 if __name__ == "__main__":

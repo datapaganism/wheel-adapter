@@ -1,4 +1,5 @@
 from .GameControllerInput import GameControllerInput
+from utils import *
 
 
 class ProController(GameControllerInput):
@@ -9,22 +10,41 @@ class ProController(GameControllerInput):
     button_index_len = 3
     axes_index_start = 7
     axes_index_len = 4
+    rep = 0
 
     def process_inputs(self, report):
         device_hid_report = self.hid_device.read(64)  # Read 64 bytes
         if device_hid_report:
             self.decode(device_hid_report)
             buttons = self.get_buttons()
-
+            # print(buttons)
             report.cross = buttons[2]
             report.circle = buttons[3]
             report.triangle = buttons[1]
             report.square = buttons[0]
 
             report.PS = buttons[12]
-            report.start = buttons[9]
-            # report.throttle = int(num_to_range(buttons[7], 0, 1, 0xFFFF, 0))
-            # report.brake = int(num_to_range(buttons[23], 0, 1, 0xFFFF, 0))
+            report.startOptions = buttons[9]
+            report.selectShare = buttons[8]
+            # report.counter = buttons[13]
+            # if buttons[13] == 1:
+            #     self.rep += 1
+            #     print(self.rep)
+            #     report.counter = self.rep
+                
+                
+            
+            # report.throttle = int(map_num(buttons[7], 0, 1, 0xFFFF, 0))
+            # report.brake = int(map_num(buttons[23], 0, 1, 0xFFFF, 0))
+            report.L1Paddle=buttons[4]
+            report.R1Paddle=buttons[5]
+            report.L2=buttons[22]
+            report.R2=buttons[6]
+            report.L3=buttons[11]
+            report.LR=buttons[10]
+            
+            
+            
 
             dpad = buttons[16 : 16 + 4]
             ddown = dpad[0]

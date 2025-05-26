@@ -185,10 +185,14 @@ class WheelController(GameControllerInput):
 
 
                 case G29_COMMAND.Stop_Force:
-                    print("Stop_Force")
-                #  ffboard.writeData(
-                #         FX_MANAGER, 0, 0x1, data=0, adr=effects[0]
-                #     )
+                    self.writeData(
+                    FX_MANAGER,
+                    0,
+                    OFFB_CMD.mag.value,
+                    data=0,
+                    adr=self.force_index(OFFB_FORCE_TYPE.Constant),
+                    )
+                    
                 case G29_COMMAND.Turn_on_Normal_Mode:
                     if force_slot == 0b1111:
                         ext_cmd = g29_ffb_packet[1]

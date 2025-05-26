@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 
-set(BAUD "230400")
+set(BAUD "115200")
 
 add_compile_definitions(PICO_DEFAULT_UART_BAUD_RATE=${BAUD})
 add_compile_definitions(PICO_DEFAULT_UART_TX_PIN=16)

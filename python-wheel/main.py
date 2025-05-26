@@ -21,6 +21,7 @@ Test higher baud rates
 """
 BAUDRATE = 921600
 BAUDRATE = 115200
+BAUDRATE = 230400
 
 FX_MANAGER = 0xA03
 AXIS = 0xA01
@@ -78,7 +79,7 @@ def main():
 
     controllers: GameControllerInput = [
         WheelController(),
-        PedalsController(),
+        # PedalsController(),
         ProController(),
         Shifter(),
     ]
@@ -110,6 +111,7 @@ def main():
     try:
         while not stop_event.is_set():
             send_g29_report(ser,controllers)
+            time.sleep(1/300)
 
     except KeyboardInterrupt:
         print("Bye")

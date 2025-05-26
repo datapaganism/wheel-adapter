@@ -19,7 +19,6 @@ OSError: read error
 Code cleanup
 Test higher baud rates
 """
-BAUDRATE = 921600
 BAUDRATE = 115200
 BAUDRATE = 230400
 

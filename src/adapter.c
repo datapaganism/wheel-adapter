@@ -19,72 +19,10 @@
 
 #define FFB_PACKET_LENGTH 7
 
-
-void dump_g29_report(g29_report_t* report)
-{
-    printf("ry     is 0x%x\n", report->ry);
-    printf("wheel  is 0x%x\n", report->wheel);
-    printf("clutch is 0x%x\n", report->clutch);
-}
-
-
-void unpack_buffer_to_g29(uint8_t* buffer, g29_report_t* report)
-{
-    uint8_t* b = buffer;
-    uint8_t* r = (uint8_t*)report;
-
-    memcpy(r,b, 8);
-    b += 8;
-    r += (8 + 34);
-    memcpy(r,b, 8);
-    // dump_g29_report(report);
-}
-
 buffer_t rx_buffer;
 buffer_t tx_buffer;
 
 int UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
-
-uint8_t* com1Tx_buf = (uint8_t*)&tx_buffer.buffer;											// pointer to the buffer for transmitted characters
-volatile int com1Tx_head, com1Tx_tail;	
-
-void on_uart_irq0() {
-    if(uart_is_readable(uart0)) {
-        uint8_t byte_got = uart_getc(uart0);
-        rb_push(&rx_buffer, byte_got);
-    }
-    // if(uart_is_writable(uart0)){
-	// 	if(com1Tx_head != com1Tx_tail) {
-	// 		uart_putc_raw(uart0,com1Tx_buf[com1Tx_tail]);
-	// 		com1Tx_tail = (com1Tx_tail + 1) % sizeof(tx_buffer.buffer);       // advance the tail of the queue
-	// 	} else {
-	// 		uart_set_irq_enables(uart0, true, false);
-	// 	}
-    // }
-
-    // irq_set_enabled(UART_IRQ, true);
-}
-
-void setupuart(){
-	uart_init(UART_ID,BAUD_RATE);
-    uart_set_hw_flow(UART_ID, false, false);
-    uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
-    uart_set_fifo_enabled(UART_ID, false);
-    UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
-
-    // if(uart){
-	// 	irq_set_exclusive_handler(UART_IRQ, on_uart_irq1);
-    // 	irq_set_enabled(UART_IRQ, true);
-	// } else {
-    irq_set_exclusive_handler(UART_IRQ, on_uart_irq0);
-    irq_set_enabled(UART_IRQ, true);
-	// }
-    uart_set_irq_enables(UART_ID, true, false);
-
-    uart_puts(UART_ID, "\nHello, its a me, uart\n");
-
-}
-
 
 uint8_t nonce_id;
 uint8_t nonce[280];
@@ -136,6 +74,55 @@ const uint8_t output_0x03[] = {
 const uint8_t output_0xf3[] = { 0x0, 0x38, 0x38, 0, 0, 0, 0 };
 
 
+void dump_g29_report(g29_report_t* report)
+{
+    printf("ry     is 0x%x\n", report->ry);
+    printf("wheel  is 0x%x\n", report->wheel);
+    printf("clutch is 0x%x\n", report->clutch);
+}
+
+
+void unpack_buffer_to_g29(uint8_t* buffer, g29_report_t* report)
+{
+    uint8_t* b = buffer;
+    uint8_t* r = (uint8_t*)report;
+
+    memcpy(r,b, 8);
+    b += 8;
+    r += (8 + 34);
+    memcpy(r,b, 8);
+    // dump_g29_report(report);
+}
+
+
+void on_uart_irq0() {
+    if(uart_is_readable(uart0)) {
+        uint8_t byte_got = uart_getc(uart0);
+        rb_push(&rx_buffer, byte_got);
+    }
+}
+
+void setupuart(){
+	uart_init(UART_ID,BAUD_RATE);
+    uart_set_hw_flow(UART_ID, false, false);
+    uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
+    uart_set_fifo_enabled(UART_ID, false);
+    UART_IRQ = UART_ID == uart0 ? UART0_IRQ : UART1_IRQ;
+
+    // if(uart){
+	// 	irq_set_exclusive_handler(UART_IRQ, on_uart_irq1);
+    // 	irq_set_enabled(UART_IRQ, true);
+	// } else {
+    irq_set_exclusive_handler(UART_IRQ, on_uart_irq0);
+    irq_set_enabled(UART_IRQ, true);
+	// }
+    uart_set_irq_enables(UART_ID, true, false);
+
+    uart_puts(UART_ID, "\nHello, its a me, uart\n");
+
+}
+
+
 uint8_t emplace_ffb_packet_to_tx(buffer_t* b, uint8_t* payload, uint8_t payload_len)
 {
     if ((sizeof(b->buffer) - b->size) >= (payload_len + sizeof(header_t)))
@@ -155,10 +142,11 @@ uint8_t emplace_ffb_packet_to_tx(buffer_t* b, uint8_t* payload, uint8_t payload_
 
 bool get_payload(buffer_t *b, uint8_t *payload_out)
 {
+    uint8_t sync_0;
+    uint8_t sync_1;
+    
     while (b->size >= PACKET_LEN)
     {
-        uint8_t sync_0;
-        uint8_t sync_1;
 
         if (rb_pop(b, &sync_0) != 0)
         {
@@ -202,7 +190,6 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
 
 void uart_task()
 {
-
     static uint8_t test_buf[MESSAGE_LEN];
     uint8_t* ptr = (uint8_t*)&test_buf;
 

@@ -1,7 +1,6 @@
 #pragma once
 #include <stdint.h>
 
-#define SYNC_PHRASE 0xF0CC
 #define HEADER_BYTE_0 0xA1
 #define HEADER_BYTE_1 0x36
 

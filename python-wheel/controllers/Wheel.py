@@ -59,7 +59,7 @@ CMDTYPE_WRITEADR = 0x03
 CMDTYPE_READADR = 0x04
 CMDTYPE_ACK = 0x0A
 CMDTYPE_ERR = 0x07
-DEFAULT_FFBOARD_POLL_TIMEOUT = 10000000
+DEFAULT_FFBOARD_POLL_TIMEOUT = 10000
 
 
 class OFFB_FORCE_TYPE(Enum):
@@ -125,11 +125,18 @@ class WheelController(GameControllerInput):
         self.readData(FX_MANAGER, 0, OFFB_CMD.reset.value)  # Reset FFB
         self.writeData(FX_MANAGER, 0, OFFB_CMD.ffbstate.value, 1)  # Enable FFB
         self.writeData(FX_MANAGER, 0, OFFB_CMD.new.value, OFFB_FORCE_TYPE.Constant.value) # New constant force effect
-        self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.ffb_effects[0])  #  Enable effect
+        for effect in self.ffb_effects:
+            print(effect)
+            self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.force_index(OFFB_FORCE_TYPE.Constant))  #  Enable effect
 
     def thread_job_while_connected_task(self):
         self.parse_ffb_packet()
         return super().thread_job_while_connected_task()
+    
+    def force_index(self, type: OFFB_FORCE_TYPE):
+        for effect in self.ffb_effects:
+            if effect[0] == type:
+                return effect[1]
 
     def parse_ffb_packet(self):
         g29_ffb_packet = None
@@ -139,6 +146,7 @@ class WheelController(GameControllerInput):
             self.rx_uart_queue.task_done()
         except queue.Empty:
             pass
+            return
 
         if input_str is not None:
             if len(input_str) == 9:
@@ -158,6 +166,8 @@ class WheelController(GameControllerInput):
                     force_type = g29_ffb_packet[1]
                     if force_type == 0x8:  # Variable
 
+                      
+
                         # L1 and L2 look signed to me
                         L1 = g29_ffb_packet[2]
                         L2 = g29_ffb_packet[3]
@@ -171,8 +181,12 @@ class WheelController(GameControllerInput):
 
                         if T1 != 0 or S1 != 0 or D1 != 0:
                             print(f"T1 {T1} S1 {S1} D1 {D1}")
+                        
+                        if T2 != 0:
+                            print("T2")
 
                         ratio_to_max = abs(self.axis_pos) / (1 << 15)
+                        ratio_to_max = 1
                         final = map_num(L1, -(1 << 7), (1 << 7), -(1 << 15), (1 << 15))
 
                         self.writeData(
@@ -180,7 +194,7 @@ class WheelController(GameControllerInput):
                             0,
                             OFFB_CMD.mag.value,
                             data=int(((final) * MASTER_SCALE * ratio_to_max)),
-                            adr=self.ffb_effects[0],
+                            adr=self.force_index(OFFB_FORCE_TYPE.Constant),
                         )
 
 
@@ -264,7 +278,7 @@ class WheelController(GameControllerInput):
 
     def readDataCB(self, cmdtype, cls, inst, cmd, val, addr):
         if cls == FX_MANAGER and cmd == 2:
-            self.ffb_effects.append(val)
+            self.ffb_effects.append((OFFB_FORCE_TYPE(cmdtype) , val))
             print("Got new effect at index", val)
 
         # if cls == AXIS and cmd == AXIS_POS_COMMAND:

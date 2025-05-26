@@ -17,12 +17,12 @@ class G29Report(ctypes.LittleEndianStructure):
         ("circle", ctypes.c_uint32, 1),
         ("triangle", ctypes.c_uint32, 1),
         # 1 Byte
-        ("L1", ctypes.c_uint32, 1),
-        ("R1", ctypes.c_uint32, 1),
+        ("L1Paddle", ctypes.c_uint32, 1),
+        ("R1Paddle", ctypes.c_uint32, 1),
         ("L2", ctypes.c_uint32, 1),
         ("R2", ctypes.c_uint32, 1),
-        ("select", ctypes.c_uint32, 1),
-        ("start", ctypes.c_uint32, 1),
+        ("selectShare", ctypes.c_uint32, 1),
+        ("startOptions", ctypes.c_uint32, 1),
         ("L3", ctypes.c_uint32, 1),
         ("R3", ctypes.c_uint32, 1),
         # 1 Byte
@@ -62,12 +62,12 @@ if __name__ == "__main__":
     report.cross = 0
     report.circle = 0
     report.triangle = 0
-    report.L1 = 0
-    report.R1 = 0
+    report.L1Paddle = 0
+    report.R1Paddle = 0
     report.L2 = 0
     report.R2 = 0
-    report.select = 0
-    report.start = 0
+    report.selectShare = 0
+    report.startOptions = 0
     report.L3 = 0
     report.R3 = 0
     report.PS = 0

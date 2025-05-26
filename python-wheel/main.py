@@ -83,18 +83,7 @@ def main():
         Shifter(),
     ]
     threads = []
-    # rx_uart_queue = queue.Queue()
-
-    ffboard_device = controllers[0]
  
-    # dev.writeData(FX_MANAGER,0,0x4,data=4000,adr=effects[0]) # Set constant foce magnitude
-    # time.sleep(1)
-    # dev.writeData(FX_MANAGER,0,0x4,data=-2000,adr=effects[0]) # Set constant foce magnitude
-    # time.sleep(1)
-    # dev.writeData(FX_MANAGER,0,0x4,data=0,adr=effects[0]) # Set constant foce magnitude 0
-    # time.sleep(5)
-    # exit(0)
-
     for control in controllers:
         thread = threading.Thread(
             target=control.thread_job,
@@ -105,11 +94,18 @@ def main():
         thread.start()
         threads.append(thread)
         # time.sleep(0.01)
+        
+    ffboard_device = None
+    for controller in controllers:
+        if controller.product_string == "Wheel":
+            ffboard_device = controller
+            break
 
-    read_uart_ffb_thread = threading.Thread(
-        target=read_uart_thread, args=(ffboard_device.rx_uart_queue, ser, stop_event), daemon=False
-    )
-    read_uart_ffb_thread.start()
+    if ffboard_device is not None:
+        read_uart_ffb_thread = threading.Thread(
+            target=read_uart_thread, args=(ffboard_device.rx_uart_queue, ser, stop_event), daemon=False
+        )
+        read_uart_ffb_thread.start()
 
     try:
         while not stop_event.is_set():
@@ -125,7 +121,7 @@ def main():
 
     stop_event.set()
     # ffboard_device.writeData(FX_MANAGER, 0, 0, 0)  # Disable FFB
-    ffboard_device.close()
+    # ffboard_device.close()
     print("Good Bye for real")
 
 

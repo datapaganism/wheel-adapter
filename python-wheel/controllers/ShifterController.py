@@ -16,5 +16,5 @@ class Shifter(GameControllerInput):
             self.decode(device_hid_report, signed=False)
             buttons = self.get_buttons()
 
-            report.R1 = buttons[7]
-            report.L1 = buttons[6]
+            report.R1Paddle = buttons[7]
+            report.L1Paddle = buttons[6]

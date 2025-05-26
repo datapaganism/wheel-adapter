@@ -190,7 +190,6 @@ class WheelController(GameControllerInput):
                 #         FX_MANAGER, 0, 0x1, data=0, adr=effects[0]
                 #     )
                 case G29_COMMAND.Turn_on_Normal_Mode:
-                    return
                     if force_slot == 0b1111:
                         ext_cmd = g29_ffb_packet[1]
                         match ext_cmd:
@@ -198,16 +197,16 @@ class WheelController(GameControllerInput):
                                 print("EXT Change Mode to Driving Force Pro")
                             case 0x2:
                                 print("EXT Change Wheel Range to 200 Degrees")
-                                # ffboard.writeData(
-                                #     AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
-                                # )
+                                self.writeData(
+                                    AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
+                                )
 
 
                             case 0x3:
                                 print("EXT Change Wheel Range to 900 Degrees")
-                                # ffboard.writeData(
-                                #     AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
-                                # )
+                                self.writeData(
+                                    AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
+                                )
 
                             case 0x9:
                                 print("EXT Change Device Mode")
@@ -223,9 +222,10 @@ class WheelController(GameControllerInput):
                                 print("EXT Wheel Range Change")
                                 target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
                                 target_range = clamp(target_range, 40, 900)
-                                # ffboard.writeData(
-                                #     AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
-                                # )
+                                print(f"New requested range {target_range}")
+                                self.writeData(
+                                    AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
+                                )
                 case _:
                     print(f"Got not implemented command {G29_COMMAND(cmd).name}")
                     print(f"cmd {hex(cmd)} fX {hex(force_slot)}")

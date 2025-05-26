@@ -67,20 +67,25 @@ class GameControllerInput:
         return temp
     
     def thread_job_while_connected_task(self):
-        self.process_inputs(self.g29report)
-
+        try:
+            self.process_inputs(self.g29report)
+        except:
+            pass
+        
     def thread_job(self, stop_event):
-        while not stop_event.is_set():
+        while self.connected and not stop_event.is_set():
             # if not self.connected:
             #     print("trying reconnect")
             #     self.connect()
             try:
                 if self.connected:
                     self.thread_job_while_connected_task()
+                    time.sleep(1 / 300)
+                    
             except:
                 print(f"{self.product_string} FAILED to process inputs")
-            # time.sleep(1 / 60)
-        print("KILLING THREAD")
+                raise
+        print(f"Thread exit -  {self.product_string}")
         self.close()
 
     def decode(self, report, signed=False):

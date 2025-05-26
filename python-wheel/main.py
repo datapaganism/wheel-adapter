@@ -20,7 +20,7 @@ Code cleanup
 Test higher baud rates
 """
 BAUDRATE = 115200
-BAUDRATE = 230400
+REPORT_OUT_RATE_HZ = 400
 
 FX_MANAGER = 0xA03
 AXIS = 0xA01
@@ -55,6 +55,9 @@ def send_g29_report(ser, controllers):
     # Merge all byte arrays    
     final = bytearray([0]) * 16    
     for controller in controllers:
+        if not controller.connected:
+            continue 
+        
         temp = controller.get_g29report()
         for i in range(len(temp)):
             final[i] |= temp[i]
@@ -78,7 +81,7 @@ def main():
 
     controllers: GameControllerInput = [
         WheelController(),
-        # PedalsController(),
+        PedalsController(),
         ProController(),
         Shifter(),
     ]
@@ -110,7 +113,7 @@ def main():
     try:
         while not stop_event.is_set():
             send_g29_report(ser,controllers)
-            time.sleep(1/300)
+            time.sleep(1/REPORT_OUT_RATE_HZ)
 
     except KeyboardInterrupt:
         print("Bye")

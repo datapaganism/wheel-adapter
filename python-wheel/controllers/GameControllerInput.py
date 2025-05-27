@@ -88,7 +88,7 @@ class GameControllerInput:
         print(f"Thread exit -  {self.product_string}")
         self.close()
 
-    def decode(self, report, signed=False):
+    def decode(self, report, axis_width=16, signed=False):
 
         # for x in report:
         #     hex_padded = f"{x:02x}"  ## Format specifier for 2-digit hex
@@ -114,16 +114,18 @@ class GameControllerInput:
             raw_axes = report[
                 self.axes_index_start : self.axes_index_start + self.axes_index_len
             ]
-            # print(raw_axes)
-
-            # Convert axis values (assuming they are 16-bit signed integers)
-            AXIS_WIDTH = 2  # 16bit
-            self.axes = [
-                int.from_bytes(
-                    raw_axes[i : i + AXIS_WIDTH], byteorder="little", signed=signed
-                )
-                for i in range(0, len(raw_axes), AXIS_WIDTH)
-            ]
+            
+            if axis_width > 8:
+                # Convert axis values (assuming they are 16-bit signed integers)
+                AXIS_WIDTH = int(axis_width / 8)  # 16bit
+                self.axes = [
+                    int.from_bytes(
+                        raw_axes[i : i + AXIS_WIDTH], byteorder="little", signed=signed
+                    )
+                    for i in range(0, len(raw_axes), AXIS_WIDTH)
+                ]
+            else:
+                self.axes = raw_axes
             # for x in self.axes:
             #     x &= (1 < 10)
             # print(self.axes)

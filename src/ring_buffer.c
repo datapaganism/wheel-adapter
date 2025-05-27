@@ -1,16 +1,18 @@
 #include "ring_buffer.h"
+#include "debugprintf.h"
+
 
 uint8_t rb_push(buffer_t *buffer, uint8_t value)
 {
     if (!buffer)
     {
-        printf("no buffer\n");
+        debugprintf("no buffer\n");
         return 2;
     }
 
     if (((buffer->head + 1) % sizeof(buffer->buffer)) == buffer->tail)
     {
-        printf("can't push\n");
+        debugprintf("can't push\n");
         return 1;
     }
 
@@ -25,13 +27,13 @@ uint8_t rb_pop(buffer_t *buffer, uint8_t *out)
 {
     if (!buffer)
     {
-        printf("no buffer\n");
+        debugprintf("no buffer\n");
         return 2;
     }
 
     if ((buffer->head == buffer->tail) || (buffer->size == 0))
     {
-        printf("pop fail empty\n");
+        debugprintf("pop fail empty\n");
         return 1;
     }
 
@@ -50,7 +52,7 @@ uint8_t rb_pop_by(buffer_t *buffer, size_t amount)
 {
     if (!buffer)
     {
-        printf("no buffer\n");
+        debugprintf("no buffer\n");
         return 2;
     }
 
@@ -58,7 +60,7 @@ uint8_t rb_pop_by(buffer_t *buffer, size_t amount)
     {
         if (!rb_pop(buffer, NULL))
         {
-            printf("pop fail multiple\n");
+            debugprintf("pop fail multiple\n");
             return 1;
         }
     }
@@ -70,13 +72,13 @@ uint8_t rb_peek(buffer_t *buffer, uint8_t *out, uint8_t offset)
 {
     if (!buffer)
     {
-        printf("no buffer\n");
+        debugprintf("no buffer\n");
         return 2;
     }
 
     if ((buffer->head == buffer->tail) || (buffer->size == 0))
     {
-        printf("empty buffer\n");
+        debugprintf("empty buffer\n");
         return 1;
     }
 
@@ -89,7 +91,7 @@ uint8_t rb_reset(buffer_t *buffer)
 {
     if (!buffer)
     {
-        printf("no buffer\n");
+        debugprintf("no buffer\n");
         return 2;
     }
 
@@ -101,7 +103,7 @@ bool rb_is_available(buffer_t *buffer, size_t size)
 {
     if (!buffer)
     {
-        printf("no buffer\n");
+        debugprintf("no buffer\n");
         return false;
     }
 
@@ -115,7 +117,7 @@ bool rb_is_available(buffer_t *buffer, size_t size)
 
 
     size_t available = (buffer->head >= buffer->tail) ? (buffer->head - buffer->tail) : (sizeof(buffer->buffer) - buffer->tail + buffer->head);
-    printf("available %i\n", available);
+    debugprintf("available %i\n", available);
     return (available >= size);
 
 }

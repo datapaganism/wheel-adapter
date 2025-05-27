@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
+set(target_name adapter)
 
 set(BAUD "115200")
-
 add_compile_definitions(PICO_DEFAULT_UART_BAUD_RATE=${BAUD})
 add_compile_definitions(PICO_DEFAULT_UART_TX_PIN=16)
 add_compile_definitions(PICO_DEFAULT_UART_RX_PIN=17)
@@ -13,26 +13,22 @@ set(PICO_TINYUSB_PATH "${CMAKE_CURRENT_LIST_DIR}/tinyusb")
 set(PICO_PIO_USB_PATH "${CMAKE_CURRENT_LIST_DIR}/Pico-PIO-USB")
 
 
-
-
 include(pico_sdk_import.cmake)
 
 
-project(adapter)
-
+project(${target_name})
 
 
 pico_sdk_init()
 
-add_executable(adapter
+add_executable(${target_name}
     src/adapter.c
     src/descriptors.c
-    src/transport.c
     src/ring_buffer.c
 )
-target_include_directories(adapter PRIVATE src)
+target_include_directories(${target_name} PRIVATE src)
 
-target_link_libraries(adapter
+target_link_libraries(${target_name}
     pico_stdlib
     tinyusb_host
     tinyusb_device
@@ -41,6 +37,6 @@ target_link_libraries(adapter
 )
 
 
-pico_add_extra_outputs(adapter)
-pico_enable_stdio_usb(adapter 0)
-pico_enable_stdio_uart(adapter 1)
+pico_add_extra_outputs(${target_name})
+pico_enable_stdio_usb(${target_name} 0)
+pico_enable_stdio_uart(${target_name} 1)

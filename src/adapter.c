@@ -11,6 +11,7 @@
 #include "transport.h"
 #include "uart_config.h"
 #include "ring_buffer.h"
+#include "debugprintf.h"
 
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
@@ -76,9 +77,9 @@ const uint8_t output_0xf3[] = { 0x0, 0x38, 0x38, 0, 0, 0, 0 };
 
 void dump_g29_report(g29_report_t* report)
 {
-    printf("ry     is 0x%x\n", report->ry);
-    printf("wheel  is 0x%x\n", report->wheel);
-    printf("clutch is 0x%x\n", report->clutch);
+    debugprintf("ry     is 0x%x\n", report->ry);
+    debugprintf("wheel  is 0x%x\n", report->wheel);
+    debugprintf("clutch is 0x%x\n", report->clutch);
 }
 
 
@@ -102,7 +103,7 @@ void on_uart_irq0() {
     }
 }
 
-void setupuart(){
+void setup_uart(){
 	uart_init(UART_ID,BAUD_RATE);
     uart_set_hw_flow(UART_ID, false, false);
     uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
@@ -118,12 +119,14 @@ void setupuart(){
 	// }
     uart_set_irq_enables(UART_ID, true, false);
 
-    uart_puts(UART_ID, "\nHello, its a me, uart\n");
+#ifdef DEBUG_PRINT
+    uart_puts(UART_ID, "UART is ready\n");
+#endif
 
 }
 
 
-uint8_t emplace_ffb_packet_to_tx(buffer_t* b, uint8_t* payload, uint8_t payload_len)
+uint8_t pusb_ffb_packet_to_tx_buffer(buffer_t* b, uint8_t* payload, uint8_t payload_len)
 {
     if ((sizeof(b->buffer) - b->size) >= (payload_len + sizeof(header_t)))
     {
@@ -174,7 +177,7 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
             {
                 if (rb_pop(b, payload_out + i) != 0)
                 {
-                    printf("pop fail\n");
+                    debugprintf("pop fail\n");
                     return false;
                 }
 
@@ -188,23 +191,17 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
 
 }
 
-void uart_task()
+void get_uart_input_report_task()
 {
     static uint8_t test_buf[MESSAGE_LEN];
     uint8_t* ptr = (uint8_t*)&test_buf;
 
     if (get_payload(&rx_buffer, ptr)) {
         unpack_buffer_to_g29(ptr,&report);
-
-        if (report.PS == true)
-        {
-            printf("PS is 0x%x\n", report.PS);
-        }
-
     }
 }
 
-void write_ffb_buffer_out()
+void flush_tx_ffb_packet_out()
 {
     if (tx_buffer.size >= FFB_PACKET_LENGTH + sizeof(header_t))
     {
@@ -229,6 +226,7 @@ void report_init() {
 
 void hid_task() {
     if (!tud_hid_ready()) {
+        // debugprintf("Console not connected\n");
         return;
     }
 
@@ -241,7 +239,7 @@ void hid_task() {
         if (wheel_device) {
             tuh_hid_send_report(wheel_device, wheel_instance, 0, ff_buf, sizeof(ff_buf));
         }
-        emplace_ffb_packet_to_tx(&tx_buffer, (uint8_t*)&ff_buf, sizeof(ff_buf));
+        pusb_ffb_packet_to_tx_buffer(&tx_buffer, (uint8_t*)&ff_buf, sizeof(ff_buf));
         memcpy(prev_ff_buf, ff_buf, sizeof(ff_buf));
     }
 }
@@ -270,7 +268,7 @@ void auth_task() {
                 set_buffer[2] = nonce_part;
                 set_buffer[3] = 0;
                 memcpy(set_buffer + 4, nonce + (nonce_part * 56), 56);
-                printf(".");
+                debugprintf(".");
                 tuh_hid_set_report(auth_device, auth_instance, 0xF0, HID_REPORT_TYPE_FEATURE, set_buffer, 64);
                 busy = true;
                 nonce_part++;
@@ -287,57 +285,35 @@ void auth_task() {
     }
 }
 
-int main() {
-    board_init();
-    report_init();
-    tusb_init();
-    stdio_init_all();
 
-    memset(&rx_buffer, 0, sizeof(buffer_t));
-    memset(&tx_buffer, 0, sizeof(buffer_t));
-
-    setupuart();
-
-    while (1) {
-        tuh_task();
-        tud_task();
-        uart_task();
-        hid_task();
-        write_ffb_buffer_out();
-        auth_task();
-        wheel_init_task();
-    }
-
-    return 0;
-}
 
 void tuh_hid_get_report_complete_cb(uint8_t dev_addr, uint8_t idx, uint8_t report_id, uint8_t report_type, uint16_t len) {
     if (dev_addr == auth_device) {
         busy = false;
         switch (report_id) {
             case 0xF3:
-                printf("Sending nonce to auth controller");
+                debugprintf("Sending nonce to auth controller");
                 state = SENDING_NONCE;
                 break;
             case 0xF2:
-                // printf(".");
+                // debugprintf(".");
                 if (get_buffer[2] == 0) {
                     signature_part = 0;
                     state = RECEIVING_SIG;
-                    printf("\n");
-                    printf("Receiving signature from auth controller");
+                    debugprintf("\n");
+                    debugprintf("Receiving signature from auth controller");
                 }
                 break;
             case 0xF1:
                 memcpy(signature + (signature_part * 56), get_buffer + 4, 56);
                 signature_part++;
-                printf(".");
+                debugprintf(".");
                 if (signature_part == 19) {
                     state = IDLE;
                     expected_part = 0;
                     signature_ready = true;
                     signature_part = 0;
-                    printf("\n");
+                    debugprintf("\n");
                 }
                 break;
         }
@@ -348,8 +324,8 @@ void tuh_hid_set_report_complete_cb(uint8_t dev_addr, uint8_t idx, uint8_t repor
     if ((dev_addr == auth_device) && (report_id == 0xF0)) {
         busy = false;
         if (nonce_part == 5) {
-            printf("\n");
-            printf("Waiting for auth controller to sign...\n");
+            debugprintf("\n");
+            debugprintf("Waiting for auth controller to sign...\n");
             state = WAITING_FOR_SIG;
         }
     }
@@ -370,20 +346,20 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
             buffer[1] = signature_part;
             buffer[2] = 0;
             if (signature_part == 0) {
-                printf("Sending signature to PS5");
+                debugprintf("Sending signature to PS5");
             }
-            printf(".");
+            debugprintf(".");
             memcpy(&buffer[3], &signature[signature_part * 56], 56);
             signature_part++;
             if (signature_part == 19) {
                 signature_part = 0;
-                printf("\n");
+                debugprintf("\n");
                 board_led_write(true);
             }
             return reqlen;
         }
         case 0xF2: {  // GET_SIGNING_STATE
-            printf("PS5 asks if signature ready (%s).\n", signature_ready ? "yes" : "no");
+            debugprintf("PS5 asks if signature ready (%s).\n", signature_ready ? "yes" : "no");
             buffer[0] = nonce_id;
             buffer[1] = signature_ready ? 0 : 16;
             memset(&buffer[2], 0, 9);
@@ -401,9 +377,9 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
             part = buffer[1];
         }
         if (part == 0) {
-            printf("Getting nonce from PS5");
+            debugprintf("Getting nonce from PS5");
         }
-        printf(".");
+        debugprintf(".");
         if (part > 4) {
             return;
         }
@@ -411,14 +387,13 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
         memcpy(&nonce[part * 56], &buffer[3], 56);
         if (part == 4) {
             nonce_ready = 1;
-            printf("\n");
-            printf("Sending reset to auth controller...\n");
+            debugprintf("\n");
+            debugprintf("Sending reset to auth controller...\n");
             state = SENDING_RESET;
             nonce_part = 0;
         }
     } else {
         if (bufsize > sizeof(ff_buf)) {
-            // printf("Got FFB packet\n");
             // pass everything through to the wheel
             memcpy(ff_buf, buffer + 1, sizeof(ff_buf));
         }
@@ -428,11 +403,12 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len) {
     uint16_t vid;
     uint16_t pid;
-    tuh_vid_pid_get(dev_addr, &vid, &pid);
-
-    printf("tuh_hid_mount_cb %04x:%04x %d %d\n", vid, pid, dev_addr, instance);
-
-    // initialized = false;
+    if (!tuh_vid_pid_get(dev_addr, &vid, &pid))
+    {
+        debugprintf("failed to pid/vid get for %d %d\n", dev_addr, instance);
+        return;
+    }
+    debugprintf("tuh_hid_mount_cb %04x:%04x %d %d\n", vid, pid, dev_addr, instance);
 
     if ((vid == 0x046d) && (pid == 0xc294)) {  // Driving Force (or another wheel in compatibility mode)
         wheel_device = dev_addr;
@@ -446,7 +422,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_re
 }
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
-    printf("tuh_hid_umount_cb\n");
+    debugprintf("tuh_hid_umount_cb\n");
     if (dev_addr == wheel_device) {
         wheel_device = 0;
         wheel_instance = 0;
@@ -481,4 +457,30 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
     }
 
     tuh_hid_receive_report(dev_addr, instance);
+}
+
+int main() {
+    board_init();
+    report_init();
+    tusb_init();
+    stdio_init_all();
+
+    memset(&rx_buffer, 0, sizeof(buffer_t));
+    memset(&tx_buffer, 0, sizeof(buffer_t));
+
+    // Uart needs to be setup last
+    setup_uart();
+
+    while (1) {
+        tuh_task();
+        tud_task();
+
+        get_uart_input_report_task();
+        hid_task();
+        flush_tx_ffb_packet_out();
+        auth_task();
+        wheel_init_task();
+    }
+
+    return 0;
 }

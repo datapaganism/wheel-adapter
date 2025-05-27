@@ -121,13 +121,14 @@ class WheelController(GameControllerInput):
 
     def __init__(self):
         super().__init__()
-        self.registerReadCallback(self.readDataCB)
-        self.readData(FX_MANAGER, 0, OFFB_CMD.reset.value)  # Reset FFB
-        self.writeData(FX_MANAGER, 0, OFFB_CMD.ffbstate.value, 1)  # Enable FFB
-        self.writeData(FX_MANAGER, 0, OFFB_CMD.new.value, OFFB_FORCE_TYPE.Constant.value) # New constant force effect
-        for effect in self.ffb_effects:
-            print(effect)
-            self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.force_index(OFFB_FORCE_TYPE.Constant))  #  Enable effect
+        if self.connected:
+            self.registerReadCallback(self.readDataCB)
+            self.readData(FX_MANAGER, 0, OFFB_CMD.reset.value)  # Reset FFB
+            self.writeData(FX_MANAGER, 0, OFFB_CMD.ffbstate.value, 1)  # Enable FFB
+            self.writeData(FX_MANAGER, 0, OFFB_CMD.new.value, OFFB_FORCE_TYPE.Constant.value) # New constant force effect
+            for effect in self.ffb_effects:
+                print(effect)
+                self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.force_index(OFFB_FORCE_TYPE.Constant))  #  Enable effect
 
     def thread_job_while_connected_task(self):
         self.parse_ffb_packet()

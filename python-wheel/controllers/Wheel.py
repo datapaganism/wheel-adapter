@@ -5,6 +5,7 @@ import struct
 import time
 from enum import Enum
 import queue
+import math
 
 
 class FORCE_TYPE(Enum):
@@ -61,6 +62,9 @@ CMDTYPE_ACK = 0x0A
 CMDTYPE_ERR = 0x07
 DEFAULT_FFBOARD_POLL_TIMEOUT = 10000
 
+min_gain = 20
+range_start = 1000
+range_end = 10000
 
 class OFFB_FORCE_TYPE(Enum):
     Constant = 1
@@ -188,13 +192,23 @@ class WheelController(GameControllerInput):
 
                         ratio_to_max = abs(self.axis_pos) / (1 << 15)
                         ratio_to_max = 1
-                        final = map_num(L1, -(1 << 7), (1 << 7), -(1 << 15), (1 << 15))
-
+                        mag = map_num(L1, -(1 << 7), (1 << 7), -(1 << 15), (1 << 15))
+                        clamped = clamp(mag, range_start, range_end)
+                        ffb_range = range_end - range_start
+                        
+                        r = ( (ffb_range - (clamped - range_start)) * math.pi) / ffb_range
+                        c = ( math.cos(r) + 1.0 ) * (100.0 - min_gain) / 2.0
+                        gain = int(c + min_gain)
+                        
+                        
+                        mag2 = apply_gain(mag, gain, -(1 << 15), (1 << 15))
+                        print(f"mag {mag} filtered {mag2}")
+                        
                         self.writeData(
                             FX_MANAGER,
                             0,
                             OFFB_CMD.mag.value,
-                            data=int(((final) * MASTER_SCALE * ratio_to_max)),
+                            data=int(((mag) * MASTER_SCALE * ratio_to_max)),
                             adr=self.force_index(OFFB_FORCE_TYPE.Constant),
                         )
 

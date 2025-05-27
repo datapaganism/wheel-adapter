@@ -1,3 +1,5 @@
+#!.venv/bin/python3
+
 import threading
 import serial
 import hid
@@ -43,6 +45,9 @@ def read_uart_thread(inputQueue, ser, stop_event):
     while not stop_event.is_set():
         if ser.inWaiting() > 0:
             x = ser.read(ser.inWaiting())
+            # Print anything that isn't a FFB packet
+            if x[0] != 0x36:
+                print(x)
             inputQueue.put(x)
         # time.sleep(0.01)
     print("closing serial")
@@ -62,8 +67,8 @@ def send_g29_report(ser, controllers):
         for i in range(len(temp)):
             final[i] |= temp[i]
     
-    # if final == report_prev:
-        # return
+    if final == report_prev:
+        return
 
     report_prev = final
     final = SYNC + final

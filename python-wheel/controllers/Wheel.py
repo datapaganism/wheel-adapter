@@ -8,7 +8,7 @@ import queue
 import math
 
 
-class FORCE_TYPE(Enum):
+class G29_FORCE_TYPE(Enum):
     Constant = 0x00
     Spring = 0x01
     Damper = 0x02
@@ -62,9 +62,9 @@ CMDTYPE_ACK = 0x0A
 CMDTYPE_ERR = 0x07
 DEFAULT_FFBOARD_POLL_TIMEOUT = 10000
 
-min_gain = 20
-range_start = 1000
-range_end = 10000
+min_gain = 20 * 2
+range_start = 0
+range_end = 10000 * 0.5
 
 class OFFB_FORCE_TYPE(Enum):
     Constant = 1
@@ -132,7 +132,7 @@ class WheelController(GameControllerInput):
             self.writeData(FX_MANAGER, 0, OFFB_CMD.new.value, OFFB_FORCE_TYPE.Constant.value) # New constant force effect
             for effect in self.ffb_effects:
                 print(effect)
-                self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.force_index(OFFB_FORCE_TYPE.Constant))  #  Enable effect
+                self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.force_index(effect[0]))  #  Enable effect
 
     def thread_job_while_connected_task(self):
         self.parse_ffb_packet()
@@ -153,26 +153,30 @@ class WheelController(GameControllerInput):
             pass
             return
 
-        if input_str is not None:
-            if len(input_str) == 9:
-                # This is weird, the header is split but the FFB packet inside look good to me
-                if input_str[0] == SYNC[1] and input_str[8] == SYNC[0]:
-                    g29_ffb_packet = input_str[1:-1]
-                    # for x in input_str:
-                    #     print(f"{hex(x)},",end="")
-                    # print("\n")
+        if input_str is None:
+            return
+        
+        if len(input_str) != 9:
+            return
+            
+        # This is weird, the header is split but the FFB packet inside look good to me
+        if input_str[0] == SYNC[1] and input_str[8] == SYNC[0]:
+            g29_ffb_packet = input_str[1:-1]
+            # for x in input_str:
+            #     print(f"{hex(x)},",end="")
+            # print("\n")
 
-        if g29_ffb_packet != None:
-            cmd = g29_ffb_packet[0] & 0b00001111
-            force_slot = (g29_ffb_packet[0] & 0b11110000) >> 4
+        if g29_ffb_packet is None:
+            return
+    
+        cmd = g29_ffb_packet[0] & 0b00001111
+        force_slot = (g29_ffb_packet[0] & 0b11110000) >> 4
 
-            match (G29_COMMAND(cmd)):
-                case G29_COMMAND.Download_and_Play_Force:
-                    force_type = g29_ffb_packet[1]
-                    if force_type == 0x8:  # Variable
-
-                      
-
+        match (G29_COMMAND(cmd)):
+            case G29_COMMAND.Download_and_Play_Force:
+                force_type = g29_ffb_packet[1]
+                match (G29_FORCE_TYPE(force_type)):
+                    case G29_FORCE_TYPE.Variable:
                         # L1 and L2 look signed to me
                         L1 = g29_ffb_packet[2]
                         L2 = g29_ffb_packet[3]
@@ -193,7 +197,9 @@ class WheelController(GameControllerInput):
                         ratio_to_max = abs(self.axis_pos) / (1 << 15)
                         ratio_to_max = 1
                         mag = map_num(L1, -(1 << 7), (1 << 7), -(1 << 15), (1 << 15))
-                        clamped = clamp(mag, range_start, range_end)
+                        
+                        
+                        clamped = clamp(L1, range_start, range_end)
                         ffb_range = range_end - range_start
                         
                         r = ( (ffb_range - (clamped - range_start)) * math.pi) / ffb_range
@@ -208,67 +214,70 @@ class WheelController(GameControllerInput):
                             FX_MANAGER,
                             0,
                             OFFB_CMD.mag.value,
-                            data=int(((mag) * MASTER_SCALE * ratio_to_max)),
+                            data=int(((mag2) * MASTER_SCALE * ratio_to_max)),
                             adr=self.force_index(OFFB_FORCE_TYPE.Constant),
                         )
+                        
+                    case _:
+                        print(f"got force type {G29_FORCE_TYPE(force_type).name}")
 
 
-                case G29_COMMAND.Stop_Force:
-                    self.writeData(
-                    FX_MANAGER,
-                    0,
-                    OFFB_CMD.mag.value,
-                    data=0,
-                    adr=self.force_index(OFFB_FORCE_TYPE.Constant),
-                    )
-                    
-                case G29_COMMAND.Turn_on_Normal_Mode:
-                    if force_slot == 0b1111:
-                        ext_cmd = g29_ffb_packet[1]
-                        match ext_cmd:
-                            case 0x1:
-                                print("EXT Change Mode to Driving Force Pro")
-                            case 0x2:
-                                print("EXT Change Wheel Range to 200 Degrees")
-                                self.writeData(
-                                    AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
-                                )
+            case G29_COMMAND.Stop_Force:
+                self.writeData(
+                FX_MANAGER,
+                0,
+                OFFB_CMD.mag.value,
+                data=0,
+                adr=self.force_index(OFFB_FORCE_TYPE.Constant),
+                )
+                
+            case G29_COMMAND.Turn_on_Normal_Mode:
+                if force_slot == 0b1111:
+                    ext_cmd = g29_ffb_packet[1]
+                    match ext_cmd:
+                        case 0x1:
+                            print("EXT Change Mode to Driving Force Pro")
+                        case 0x2:
+                            print("EXT Change Wheel Range to 200 Degrees")
+                            self.writeData(
+                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
+                            )
 
 
-                            case 0x3:
-                                print("EXT Change Wheel Range to 900 Degrees")
-                                self.writeData(
-                                    AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
-                                )
+                        case 0x3:
+                            print("EXT Change Wheel Range to 900 Degrees")
+                            self.writeData(
+                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
+                            )
 
-                            case 0x9:
-                                print("EXT Change Device Mode")
-                            case 0x0A:
-                                print("EXT Revert Identity")
-                            case 0x10:
-                                print("EXT Switch to G25 Identity with USB Detach")
-                            case 0x11:
-                                print("EXT Switch to G25 Identity without USB Detach")
-                            case 0x12:
-                                print("EXT Set RPM LEDs")
-                            case 0x81:
-                                print("EXT Wheel Range Change")
-                                target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
-                                target_range = clamp(target_range, 40, 900)
-                                print(f"New requested range {target_range}")
-                                self.writeData(
-                                    AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
-                                )
-                case _:
-                    print(f"Got not implemented command {G29_COMMAND(cmd).name}")
-                    print(f"cmd {hex(cmd)} fX {hex(force_slot)}")
-                    for x in g29_ffb_packet:
-                        print(f"{hex(x)},", end="")
-                    print("\n")
+                        case 0x9:
+                            print("EXT Change Device Mode")
+                        case 0x0A:
+                            print("EXT Revert Identity")
+                        case 0x10:
+                            print("EXT Switch to G25 Identity with USB Detach")
+                        case 0x11:
+                            print("EXT Switch to G25 Identity without USB Detach")
+                        case 0x12:
+                            print("EXT Set RPM LEDs")
+                        case 0x81:
+                            print("EXT Wheel Range Change")
+                            target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
+                            target_range = clamp(target_range, 40, 900)
+                            print(f"New requested range {target_range}")
+                            self.writeData(
+                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
+                            )
+            case _:
+                print(f"Got not implemented command {G29_COMMAND(cmd).name}")
+                print(f"cmd {hex(cmd)} fX {hex(force_slot)}")
+                for x in g29_ffb_packet:
+                    print(f"{hex(x)},", end="")
+                print("\n")
 
-            # for x in g29_ffb_packet:
-            #     print(f"{hex(x)},",end="")
-            # print("\n")
+        # for x in g29_ffb_packet:
+        #     print(f"{hex(x)},",end="")
+        # print("\n")
 
 
     def process_inputs(self, report):

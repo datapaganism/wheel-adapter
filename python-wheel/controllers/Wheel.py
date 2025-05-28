@@ -6,6 +6,7 @@ import time
 from enum import Enum
 import queue
 import math
+from dataclasses import dataclass
 
 """
 The G29 has 4 effects slots + 2 Spring effects
@@ -56,6 +57,14 @@ class G29_COMMAND(Enum):
     Set_Dead_Band = 0x0F
     Extended_Command = 0xF8
 
+def map_G29_to_OFFB_force(g29force: G29_FORCE_TYPE):
+    match (g29force):
+        case G29_FORCE_TYPE.Variable:
+            return OFFB_FORCE_TYPE.Constant
+        case G29_FORCE_TYPE.High_Resolution_Spring:
+            return OFFB_FORCE_TYPE.Spring
+        case _:
+            print(f"G29 force type {g29force.name} is unmapped")
 
 
 MASTER_SCALE = 1.0
@@ -79,9 +88,9 @@ class OFFB_CMDTYPE(Enum):
 
 DEFAULT_FFBOARD_POLL_TIMEOUT = 10000
 
-min_gain = 20 * 2
+min_gain = 10
 range_start = 0
-range_end = 10000 * 0.5
+range_end = 10000
 
 class OFFB_FORCE_TYPE(Enum):
     Constant = 1
@@ -119,6 +128,11 @@ class OFFB_CMD(Enum):
     axisgain = 0xC
 
 
+@dataclass
+class FFB_Effect:
+    offb_index: int
+    offb_type: OFFB_FORCE_TYPE
+    g29_slot: int
 
 class WheelController(GameControllerInput):
     product_string = "Wheel"
@@ -135,8 +149,8 @@ class WheelController(GameControllerInput):
     ffb_queue = queue.Queue()
 
     ffb_enabled = False
-    requested_ffb_type = None
-    ffb_effects = []
+    requested_ffb_type: FFB_Effect = None
+    ffb_effects: list[FFB_Effect] = []
     rx_uart_queue = queue.Queue()
 
     axis_pos = 0
@@ -150,11 +164,16 @@ class WheelController(GameControllerInput):
     def disable_ffb(self):
         self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.ffbstate, 0)
         
-    def control_ffb_effect(self, type, value):
-        self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.state, adr=self.force_index(type), data=value)
+    def control_ffb_effect(self,value, type: OFFB_FORCE_TYPE = None, slot= None ):
+        addr = 0
+        if slot is not None:
+            addr = self.ffb_slot_to_index(slot)
+        if type is not None:
+            addr = self.ffb_type_to_index(type)
+        self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.state, adr=addr, data=value)
         
-    def request_ffb_type(self, type: OFFB_FORCE_TYPE):
-        self.requested_ffb_type = type
+    def request_ffb_type(self, type: OFFB_FORCE_TYPE, g29_slot):
+        self.requested_ffb_type = FFB_Effect(-1,type, g29_slot)
         self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.new, type)
         
     def close(self):
@@ -167,21 +186,23 @@ class WheelController(GameControllerInput):
             self.registerReadCallback(self.readDataCB)
             self.reset_ffb()
             self.enable_ffb()
-            self.request_ffb_type(OFFB_FORCE_TYPE.Constant)
-            self.request_ffb_type(OFFB_FORCE_TYPE.Spring)
-            
-            for effect in self.ffb_effects:
-                print(effect)
-                self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.state, data=1, adr=self.force_index(effect[0]))  #  Enable effect
 
     def thread_job_while_connected_task(self):
         self.parse_ffb_packet()
         return super().thread_job_while_connected_task()
     
-    def force_index(self, type: OFFB_FORCE_TYPE):
+    def ffb_type_to_index(self, type: OFFB_FORCE_TYPE):
         for effect in self.ffb_effects:
-            if effect[0] == type:
-                return effect[1]
+            if effect.offb_type == type:
+                return effect.offb_index
+        print("Shouldnt gotten here")
+            
+            
+    def ffb_slot_to_index(self, slot):
+        for effect in self.ffb_effects:
+            if effect.g29_slot == slot:
+                return effect.offb_index
+        print("Shouldnt gotten here")
 
     def parse_ffb_packet(self):
         g29_ffb_packet = None
@@ -215,6 +236,26 @@ class WheelController(GameControllerInput):
         match (G29_COMMAND(cmd)):
             case G29_COMMAND.Download_and_Play_Force:
                 force_type = g29_ffb_packet[1]
+                
+                that_ffb_obj = None
+                
+                for elem in self.ffb_effects:
+                    if elem.g29_slot == force_slot:
+                        that_ffb_obj = elem
+                        break
+                
+                offb_force_type = map_G29_to_OFFB_force(G29_FORCE_TYPE(force_type))
+                
+                if that_ffb_obj is None:
+                    # print(f"Effect {offb_force_type.name} doesn't exist (yet)")
+                    self.request_ffb_type(offb_force_type, force_slot)
+                    self.control_ffb_effect(True, slot=force_slot)
+                        
+                if that_ffb_obj is not None:
+                    if that_ffb_obj.offb_type != offb_force_type:
+                            # Need to clear whats there
+                            pass
+                    
                 match (G29_FORCE_TYPE(force_type)):
                     case G29_FORCE_TYPE.Variable:
                         # print(force_slot)
@@ -253,14 +294,14 @@ class WheelController(GameControllerInput):
                         
                         
                         mag2 = apply_gain(mag, gain, -(1 << 15), (1 << 15))
-                        # print(f"mag {mag} filtered {mag2}")
+                        print(f"mag {mag} filtered {mag2}")
                         
                         self.writeData(
                             OFFB_CLS.FX_MANAGER,
                             0,
                             OFFB_CMD.mag,
                             data=int(((mag2) * MASTER_SCALE)),
-                            adr=self.force_index(OFFB_FORCE_TYPE.Constant),
+                            adr=self.ffb_slot_to_index(force_slot),
                         )
                     case G29_FORCE_TYPE.High_Resolution_Spring:
                         print(f"Got Force type {G29_FORCE_TYPE(force_type).name} slot {force_slot}")
@@ -270,17 +311,39 @@ class WheelController(GameControllerInput):
                         K1 = g29_ffb_packet[4] & 0b0000_1111
                         S2 = (g29_ffb_packet[5] & 0b0001_0000) >> 4
                         S1 = g29_ffb_packet[5] & 0b0000_0001
+                        
+                        print(f"D1 {D1} D2 {D2} K1 {K1} K2 {K2} S1 {S1} S2 {S2}")
                             
-                        mag = map_num(D1, 0, (1 << 8), 0, (1 << 15))
-                        # print(mag)
+                        mag = map_num(D1, 0, (1 << 7), 0, (1 << 15))
+                        
+                        mag = (0x7FFF / 0xF) * K1
+                        
+                        deadzone = 0x7FFF / (0xFF / D1)
+                        print(f"mag {mag} deadzone {deadzone}")
                             
                         self.writeData(
                             OFFB_CLS.FX_MANAGER,
                             0,
                             OFFB_CMD.coeff,
                             data=int(((mag) * MASTER_SCALE)),
-                            adr=self.force_index(OFFB_FORCE_TYPE.Spring),
+                            adr=self.ffb_slot_to_index(force_slot),
                         )
+                        
+                        self.writeData(
+                            OFFB_CLS.FX_MANAGER,
+                            0,
+                            OFFB_CMD.deadzone,
+                            data=int(((deadzone) * MASTER_SCALE)),
+                            adr=self.ffb_slot_to_index(force_slot),
+                        )
+                        
+                        # self.writeData(
+                        #     OFFB_CLS.FX_MANAGER,
+                        #     0,
+                        #     OFFB_CMD.sat,
+                        #     data=int(((1000) * MASTER_SCALE)),
+                        #     adr=self.ffb_slot_to_index(force_slot),
+                        # )
                         
                     case _:
                         print(f"got force type {G29_FORCE_TYPE(force_type).name}")
@@ -289,8 +352,7 @@ class WheelController(GameControllerInput):
             case G29_COMMAND.Default_Spring_On:
                 print(f"Got command {G29_COMMAND(cmd).name} force slot {force_slot}")
                 
-                self.control_ffb_effect(OFFB_FORCE_TYPE.Spring, True)
-                
+                self.control_ffb_effect(True, type=OFFB_FORCE_TYPE.Spring)
                 if force_slot in [1, 2]:
                     print("SPRING X SELECTED")
                     
@@ -299,7 +361,7 @@ class WheelController(GameControllerInput):
                     
             case G29_COMMAND.Default_Spring_Off:
                 print(f"Got command {G29_COMMAND(cmd).name} force slot {force_slot}")
-                self.control_ffb_effect(OFFB_FORCE_TYPE.Spring, False)
+                self.control_ffb_effect(False, type=OFFB_FORCE_TYPE.Spring)
                 
                 if force_slot in [1, 2]:
                     print("SPRING X SELECTED")
@@ -325,7 +387,7 @@ class WheelController(GameControllerInput):
                 0,
                 OFFB_CMD.mag,
                 data=0,
-                adr=self.force_index(OFFB_FORCE_TYPE.Constant),
+                adr=self.ffb_slot_to_index(force_slot),
                 )
                 
             case G29_COMMAND.Turn_on_Normal_Mode:
@@ -399,22 +461,29 @@ class WheelController(GameControllerInput):
                 break
 
     def readDataCB(self, cmdtype, cls, inst, cmd, val, addr):
+        # print("CALLBACK ENTER")
         cmdtype = OFFB_CMDTYPE(cmdtype)
         cmd = OFFB_CMD(cmd)
         cls = OFFB_CLS(cls)
         if cls == OFFB_CLS.FX_MANAGER and cmd == OFFB_CMD.new:
+            # print("CALLBACK Got new effect at index", val)
+            
+            self.requested_ffb_type.offb_index = val
             self.ffb_effects.append(
-                (self.requested_ffb_type, val)
+                self.requested_ffb_type
             )
             self.requested_ffb_type = None
             
-            print("Got new effect at index", val)
-
 
         print(f"Type: {cmdtype.name}, Class: {cls.name}:{inst}: cmd: {cmd.name}, val: {val}, addr: {addr}")
+        # print("CALLBACK EXIT")
 
 
     def sendCommand(self, cmdtype, cls, inst, cmd, data=0, adr=0, timeout=DEFAULT_FFBOARD_POLL_TIMEOUT):
+        if not self.connected:
+            print("not connected")
+            return
+        
         buffer = self.make_command(cmdtype, cls, inst, cmd, data, adr)
         self.mutex.acquire()
         self.hid_device.set_nonblocking(False)
@@ -425,7 +494,7 @@ class WheelController(GameControllerInput):
         commands_that_need_reply = [OFFB_CMD.new,  OFFB_CMD.reset, OFFB_CMD.ffbstate]
         block = False
         if OFFB_CMD(cmd) in commands_that_need_reply:
-            print("NEED REPLY")
+            # print("NEED REPLY")
             block = True
 
         if block:
@@ -437,8 +506,7 @@ class WheelController(GameControllerInput):
                 self.mutex.release()
                 # reply = self.latest_report
                 if reply[0] == 0xA1:
-                    print(f"attempts:{og_timeout - timeout}")
-                    found = True
+                    # print(f"attempts:{og_timeout - timeout}")
                     self.latest_report = [0]
                     repl = self.parse_command(reply)
                     if repl["cls"] == cls and repl["inst"] == inst and repl["cmd"] == cmd:

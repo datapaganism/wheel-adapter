@@ -47,7 +47,8 @@ def read_uart_thread(inputQueue, ser, stop_event):
             x = ser.read(ser.inWaiting())
             # Print anything that isn't a FFB packet
             if x[0] != 0x36:
-                print(x)
+                # print(x)
+                pass
             inputQueue.put(x)
         # time.sleep(0.01)
     print("closing serial")

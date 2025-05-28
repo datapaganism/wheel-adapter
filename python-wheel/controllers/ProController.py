@@ -35,8 +35,6 @@ class ProController(GameControllerInput):
                 print(self.rep)
                 report.counter = self.rep
                 
-                
-            
             # report.throttle = int(map_num(buttons[7], 0, 1, 0xFFFF, 0))
             # report.brake = int(map_num(buttons[23], 0, 1, 0xFFFF, 0))
             # report.wheel = int(map_num(axis[1], 0, 0xFF, 0xFFFF, 0))

@@ -7,6 +7,19 @@ from enum import Enum
 import queue
 import math
 
+"""
+The G29 has 4 effects slots + 2 Spring effects
+F0 F1 F2 F3 X Y
+
+How it should work is that we track an array of of all the slots
+When we get a FFB command, check if a slot is occupied, then check if they match by type, if not deactivate the effect on OFFB and remove it
+
+Fire off OFFB commands to generate that type of FFB and then process as needed
+The stop command would actually act on the correct place then
+
+ 
+"""
+
 
 class G29_FORCE_TYPE(Enum):
     Constant = 0x00
@@ -49,17 +62,21 @@ MASTER_SCALE = 1.0
 #                  161    54
 SYNC = bytearray([0xA1, 0x36])
 
-FX_MANAGER = 0xA03
-AXIS = 0xA01
+class OFFB_CLS(Enum):
+    FX_MANAGER = 0xA03
+    AXIS = 0xA01
+
 AXIS_POS_COMMAND = 0xE
 AXIS_ROTATION_COMMAND = 0x1
 
-CMDTYPE_WRITE = 0x00
-CMDTYPE_READ = 0x01
-CMDTYPE_WRITEADR = 0x03
-CMDTYPE_READADR = 0x04
-CMDTYPE_ACK = 0x0A
-CMDTYPE_ERR = 0x07
+class OFFB_CMDTYPE(Enum):
+    WRITE = 0x00
+    READ = 0x01
+    WRITEADR = 0x03
+    READADR = 0x04
+    ACK = 0x0A
+    ERR = 0x07
+
 DEFAULT_FFBOARD_POLL_TIMEOUT = 10000
 
 min_gain = 20 * 2
@@ -118,21 +135,44 @@ class WheelController(GameControllerInput):
     ffb_queue = queue.Queue()
 
     ffb_enabled = False
+    requested_ffb_type = None
     ffb_effects = []
     rx_uart_queue = queue.Queue()
 
     axis_pos = 0
+    
+    def reset_ffb(self):
+        self.readData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.reset)
+        
+    def enable_ffb(self):
+        self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.ffbstate, 1)
+        
+    def disable_ffb(self):
+        self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.ffbstate, 0)
+        
+    def control_ffb_effect(self, type, value):
+        self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.state, adr=self.force_index(type), data=value)
+        
+    def request_ffb_type(self, type: OFFB_FORCE_TYPE):
+        self.requested_ffb_type = type
+        self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.new, type)
+        
+    def close(self):
+        self.disable_ffb()
+        return super().close()    
 
     def __init__(self):
         super().__init__()
         if self.connected:
             self.registerReadCallback(self.readDataCB)
-            self.readData(FX_MANAGER, 0, OFFB_CMD.reset.value)  # Reset FFB
-            self.writeData(FX_MANAGER, 0, OFFB_CMD.ffbstate.value, 1)  # Enable FFB
-            self.writeData(FX_MANAGER, 0, OFFB_CMD.new.value, OFFB_FORCE_TYPE.Constant.value) # New constant force effect
+            self.reset_ffb()
+            self.enable_ffb()
+            self.request_ffb_type(OFFB_FORCE_TYPE.Constant)
+            self.request_ffb_type(OFFB_FORCE_TYPE.Spring)
+            
             for effect in self.ffb_effects:
                 print(effect)
-                self.writeData(FX_MANAGER, 0, OFFB_CMD.state.value, data=1, adr=self.force_index(effect[0]))  #  Enable effect
+                self.writeData(OFFB_CLS.FX_MANAGER, 0, OFFB_CMD.state, data=1, adr=self.force_index(effect[0]))  #  Enable effect
 
     def thread_job_while_connected_task(self):
         self.parse_ffb_packet()
@@ -177,6 +217,7 @@ class WheelController(GameControllerInput):
                 force_type = g29_ffb_packet[1]
                 match (G29_FORCE_TYPE(force_type)):
                     case G29_FORCE_TYPE.Variable:
+                        # print(force_slot)
                         # L1 and L2 look signed to me
                         L1 = g29_ffb_packet[2]
                         L2 = g29_ffb_packet[3]
@@ -187,6 +228,10 @@ class WheelController(GameControllerInput):
                         D1 = g29_ffb_packet[6] & 0b00000001
                         D2 = g29_ffb_packet[6] & 0b00010000
                         L1 = unsigned_to_signed(L1, 8)
+                        L2 = unsigned_to_signed(L2, 8)
+                        
+                        # print(f"L1 {L1} L2 {L2} T1 {T1} S1 {S1} D1 {D1}")
+                        
 
                         if T1 != 0 or S1 != 0 or D1 != 0:
                             print(f"T1 {T1} S1 {S1} D1 {D1}")
@@ -208,25 +253,77 @@ class WheelController(GameControllerInput):
                         
                         
                         mag2 = apply_gain(mag, gain, -(1 << 15), (1 << 15))
-                        print(f"mag {mag} filtered {mag2}")
+                        # print(f"mag {mag} filtered {mag2}")
                         
                         self.writeData(
-                            FX_MANAGER,
+                            OFFB_CLS.FX_MANAGER,
                             0,
-                            OFFB_CMD.mag.value,
-                            data=int(((mag2) * MASTER_SCALE * ratio_to_max)),
+                            OFFB_CMD.mag,
+                            data=int(((mag2) * MASTER_SCALE)),
                             adr=self.force_index(OFFB_FORCE_TYPE.Constant),
+                        )
+                    case G29_FORCE_TYPE.High_Resolution_Spring:
+                        print(f"Got Force type {G29_FORCE_TYPE(force_type).name} slot {force_slot}")
+                        D1 = g29_ffb_packet[2]
+                        D2 = g29_ffb_packet[3]
+                        K2 = (g29_ffb_packet[4] & 0b1111_0000) >> 4
+                        K1 = g29_ffb_packet[4] & 0b0000_1111
+                        S2 = (g29_ffb_packet[5] & 0b0001_0000) >> 4
+                        S1 = g29_ffb_packet[5] & 0b0000_0001
+                            
+                        mag = map_num(D1, 0, (1 << 8), 0, (1 << 15))
+                        # print(mag)
+                            
+                        self.writeData(
+                            OFFB_CLS.FX_MANAGER,
+                            0,
+                            OFFB_CMD.coeff,
+                            data=int(((mag) * MASTER_SCALE)),
+                            adr=self.force_index(OFFB_FORCE_TYPE.Spring),
                         )
                         
                     case _:
                         print(f"got force type {G29_FORCE_TYPE(force_type).name}")
 
 
+            case G29_COMMAND.Default_Spring_On:
+                print(f"Got command {G29_COMMAND(cmd).name} force slot {force_slot}")
+                
+                self.control_ffb_effect(OFFB_FORCE_TYPE.Spring, True)
+                
+                if force_slot in [1, 2]:
+                    print("SPRING X SELECTED")
+                    
+                if force_slot in [3, 4]:
+                    print("SPRING Y SELECTED")
+                    
+            case G29_COMMAND.Default_Spring_Off:
+                print(f"Got command {G29_COMMAND(cmd).name} force slot {force_slot}")
+                self.control_ffb_effect(OFFB_FORCE_TYPE.Spring, False)
+                
+                if force_slot in [1, 2]:
+                    print("SPRING X SELECTED")
+                    
+                if force_slot in [3, 4]:
+                    print("SPRING Y SELECTED")
+                    
+            case G29_COMMAND.Set_Default_Spring:
+                print(f"Got command {G29_COMMAND(cmd).name} force slot {force_slot}")
+        
+                if force_slot in [1, 2]:
+                    print("SPRING X SELECTED")
+                    
+                if force_slot in [3, 4]:
+                    print("SPRING Y SELECTED")
+                    
+
             case G29_COMMAND.Stop_Force:
+                print(f"Got command {G29_COMMAND(cmd).name} force slot {force_slot}")
+                
                 self.writeData(
-                FX_MANAGER,
+                OFFB_CLS.FX_MANAGER,
                 0,
-                OFFB_CMD.mag.value,
+                OFFB_CMD.mag,
                 data=0,
                 adr=self.force_index(OFFB_FORCE_TYPE.Constant),
                 )
@@ -240,14 +337,14 @@ class WheelController(GameControllerInput):
                         case 0x2:
                             print("EXT Change Wheel Range to 200 Degrees")
                             self.writeData(
-                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
+                                OFFB_CLS.AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=200
                             )
 
 
                         case 0x3:
                             print("EXT Change Wheel Range to 900 Degrees")
                             self.writeData(
-                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
+                                OFFB_CLS.AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=900
                             )
 
                         case 0x9:
@@ -259,14 +356,15 @@ class WheelController(GameControllerInput):
                         case 0x11:
                             print("EXT Switch to G25 Identity without USB Detach")
                         case 0x12:
-                            print("EXT Set RPM LEDs")
+                            # print("EXT Set RPM LEDs")
+                            pass
                         case 0x81:
                             print("EXT Wheel Range Change")
                             target_range = (g29_ffb_packet[3] << 8) | g29_ffb_packet[2]
                             target_range = clamp(target_range, 40, 900)
                             print(f"New requested range {target_range}")
                             self.writeData(
-                                AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
+                                OFFB_CLS.AXIS, 0, cmd=AXIS_ROTATION_COMMAND, data=target_range
                             )
             case _:
                 print(f"Got not implemented command {G29_COMMAND(cmd).name}")
@@ -301,19 +399,19 @@ class WheelController(GameControllerInput):
                 break
 
     def readDataCB(self, cmdtype, cls, inst, cmd, val, addr):
-        if cls == FX_MANAGER and cmd == 2:
-            self.ffb_effects.append((OFFB_FORCE_TYPE(cmdtype) , val))
+        cmdtype = OFFB_CMDTYPE(cmdtype)
+        cmd = OFFB_CMD(cmd)
+        cls = OFFB_CLS(cls)
+        if cls == OFFB_CLS.FX_MANAGER and cmd == OFFB_CMD.new:
+            self.ffb_effects.append(
+                (self.requested_ffb_type, val)
+            )
+            self.requested_ffb_type = None
+            
             print("Got new effect at index", val)
 
-        # if cls == AXIS and cmd == AXIS_POS_COMMAND:
-        #     global pos
-        #     pos = val
 
-        # if cls == AXIS and cmd == AXIS_ROTATION_COMMAND:
-        #     global rot_deg
-            rot_deg = val
-
-        print(f"Type: {cmdtype}, Class: {cls}.{inst}: cmd: {OFFB_CMD(cmd).name}, val: {val}, addr: {addr}")
+        print(f"Type: {cmdtype.name}, Class: {cls.name}:{inst}: cmd: {cmd.name}, val: {val}, addr: {addr}")
 
 
     def sendCommand(self, cmdtype, cls, inst, cmd, data=0, adr=0, timeout=DEFAULT_FFBOARD_POLL_TIMEOUT):
@@ -374,32 +472,32 @@ class WheelController(GameControllerInput):
         buffer += bytearray(struct.pack("<q", adr if adr else 0))
         return buffer
 
-    def readData(self, cls, inst, cmd, adr=None, timeout=DEFAULT_FFBOARD_POLL_TIMEOUT):
+    def readData(self, cls, inst, cmd: OFFB_CMD, adr=None, timeout=DEFAULT_FFBOARD_POLL_TIMEOUT):
         """Returns a value from the FFBoard.
         Returns int for single value replies or a tuple for cmd and addr replies"""
         reply = self.sendCommand(
-            CMDTYPE_READ if adr is None else CMDTYPE_READADR,
-            cls,
+            OFFB_CMDTYPE.READ.value if adr is None else OFFB_CMDTYPE.READADR.value,
+            cls.value if isinstance(cls, Enum) else cls,
             inst,
-            cmd,
+            cmd.value if isinstance(cmd, Enum) else cmd,
             0,
             adr,
             timeout=timeout,
         )
         if reply:
-            if reply["cmdtype"] == CMDTYPE_READ:
+            if reply["cmdtype"] == OFFB_CMDTYPE.READ.value:
                 return reply["val"]
-            elif reply["cmdtype"] == CMDTYPE_READADR:
+            elif reply["cmdtype"] == OFFB_CMDTYPE.READADR.value:
                 return reply["val"], reply["addr"]
-
-    def writeData(self, cls, inst, cmd, data, adr=None, timeout=DEFAULT_FFBOARD_POLL_TIMEOUT):
+        
+    def writeData(self, cls, inst, cmd: OFFB_CMD, data: OFFB_FORCE_TYPE, adr=None, timeout=DEFAULT_FFBOARD_POLL_TIMEOUT):
         """Sends data to the FFBoard. Returns True on success"""
         reply = self.sendCommand(
-            CMDTYPE_WRITE if adr is None else CMDTYPE_WRITEADR,
-            cls=cls,
+            OFFB_CMDTYPE.WRITE.value if adr is None else OFFB_CMDTYPE.WRITEADR.value,
+            cls=cls.value if isinstance(cls, Enum) else cls,
             inst=inst,
-            cmd=cmd,
-            data=data,
+            cmd=cmd.value if isinstance(cmd, Enum) else cmd,
+            data=data.value if isinstance(data, Enum) else data,
             adr=adr,
             timeout=timeout,
         )

@@ -4,11 +4,12 @@ import threading
 import serial
 import hid
 import time
-from controllers.GameControllerInput import GameControllerInput 
+from controllers.GameControllerInput import GameControllerInput
 from controllers.Wheel import WheelController, OFFB_CMD, OFFB_FORCE_TYPE
 from controllers.ProController import *
 from controllers.ShifterController import *
-from controllers.PedalsController import*
+from controllers.PedalsController import *
+from controllers.DrivingForceButtons import *
 from utils import *
 
 """
@@ -21,17 +22,22 @@ OSError: read error
 Code cleanup
 Test higher baud rates
 """
-BAUDRATE = 115200
-REPORT_OUT_RATE_HZ = 400
 
-FX_MANAGER = 0xA03
-AXIS = 0xA01
-AXIS_POS_COMMAND = 0xE
-AXIS_ROTATION_COMMAND = 0x1
-
-MASTER_SCALE = 1.0
-#                  161    54
 SYNC = bytearray([0xA1, 0x36])
+
+PRINT_ALL_UART_MSG = True
+BAUDRATE = 115200
+# BAUDRATE = 921600
+REPORT_OUT_RATE_HZ = 400
+REPORT_DATA_LEN = 16
+REPORT_HEADER_LEN = len(SYNC)
+
+UART_DATA_BITS = 8
+UART_STOP_BITS = 1
+UART_PARITY = "N"
+
+uart_saturation_pc = (((UART_DATA_BITS + UART_STOP_BITS)  * ( REPORT_HEADER_LEN + REPORT_DATA_LEN) * REPORT_OUT_RATE_HZ ) / BAUDRATE) * 100
+
 
 
 # Check if we need
@@ -41,13 +47,14 @@ report_prev = None
 effects = []
 
 
+
 def read_uart_thread(inputQueue, ser, stop_event):
     while not stop_event.is_set():
         if ser.inWaiting() > 0:
             x = ser.read(ser.inWaiting())
             # Print anything that isn't a FFB packet
-            if x[0] != 0x36:
-                # print(x)
+            if x[0] != 0x36 and PRINT_ALL_UART_MSG:
+                print(x)
                 pass
             inputQueue.put(x)
         # time.sleep(0.01)
@@ -58,41 +65,42 @@ def read_uart_thread(inputQueue, ser, stop_event):
 def send_g29_report(ser, controllers):
     global report_prev
 
-    # Merge all byte arrays    
-    final = bytearray([0]) * 16    
+    # Merge all byte arrays
+    final = bytearray([0]) * REPORT_DATA_LEN
     for controller in controllers:
         if not controller.connected:
-            continue 
-        
+            continue
+
         temp = controller.get_g29report()
         for i in range(len(temp)):
             final[i] |= temp[i]
-    
+
     if final == report_prev:
         return
 
     report_prev = final
     final = SYNC + final
     x = ser.write(final)
-    # print(x)
 
 
 def main():
+    print(f"Serial Max saturation is {uart_saturation_pc}%")
 
     stop_event = threading.Event()
     ser = serial.Serial(
         "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0",
-        baudrate=BAUDRATE,
+        baudrate=BAUDRATE, bytesize=UART_DATA_BITS, stopbits=UART_STOP_BITS, parity=UART_PARITY
     )
 
     controllers: GameControllerInput = [
         WheelController(),
         PedalsController(),
         ProController(),
+        DrivingForceButtons(),
         Shifter(),
     ]
     threads = []
- 
+
     for control in controllers:
         thread = threading.Thread(
             target=control.thread_job,
@@ -102,8 +110,7 @@ def main():
         )
         thread.start()
         threads.append(thread)
-        # time.sleep(0.01)
-        
+
     ffboard_device = None
     for controller in controllers:
         if controller.product_string == "Wheel":
@@ -130,8 +137,6 @@ def main():
         raise
 
     stop_event.set()
-    # ffboard_device.writeData(FX_MANAGER, 0, 0, 0)  # Disable FFB
-    # ffboard_device.close()
     print("Good Bye for real")
 
 

@@ -142,6 +142,7 @@ class WheelController(GameControllerInput):
     button_index_len = -1
     axes_index_start = 9
     axes_index_len = 2 * 1
+    report_length = 25
 
     callback = None
     latest_report = None
@@ -447,7 +448,7 @@ class WheelController(GameControllerInput):
         
         while True:
             self.mutex.acquire()
-            device_hid_report = self.hid_device.read(25)
+            device_hid_report = self.hid_device.read(self.report_length)
             self.mutex.release()
             
             if device_hid_report:                
@@ -502,7 +503,7 @@ class WheelController(GameControllerInput):
             while not found and timeout:  # Receive all reports until correct one is found.
                 timeout -= 1
                 self.mutex.acquire()
-                reply = self.hid_device.read(25)
+                reply = self.hid_device.read(self.report_length)
                 self.mutex.release()
                 # reply = self.latest_report
                 if reply[0] == 0xA1:

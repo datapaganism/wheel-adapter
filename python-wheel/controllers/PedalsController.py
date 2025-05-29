@@ -11,7 +11,7 @@ class PedalsController(GameControllerInput):
     axes_index_len = 2 * 6  # 6 16bit axes
 
     def process_inputs(self, report):
-        device_hid_report = self.hid_device.read(64)  # Read 64 bytes
+        device_hid_report = self.hid_device.read(self.report_length)  
         if device_hid_report:
             self.decode(device_hid_report, signed=True)
             axes = self.get_axis()

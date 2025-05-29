@@ -14,6 +14,7 @@ class GameControllerInput:
     vid = 0
     pid = 0
 
+    report_length = 64
     button_index_start = 0
     button_index_len = 0
     axes_index_start = 0
@@ -32,8 +33,7 @@ class GameControllerInput:
             self.hid_device.open(self.vid, self.pid)
             self.connected = True
         except Exception as e:
-            print(e)
-            print(f"Failed to open hid device {self.product_string}")
+            print(f"Failed to open hid device {self.product_string} due to: {e}")
             self.connected = False
 
         # try:

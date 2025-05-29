@@ -14,7 +14,7 @@ class ProController(GameControllerInput):
     #                             lx    ly        rx  ry                                        
     # 30, 37, 81, 00, 80, 00, 1e, 18, 7c, 81, a7, 79,
     def process_inputs(self, report):
-        device_hid_report = self.hid_device.read(64)  # Read 64 bytes
+        device_hid_report = self.hid_device.read(self.report_length)  
         if device_hid_report:
             self.decode(device_hid_report,axis_width=8)
             buttons = self.get_buttons()
@@ -45,7 +45,7 @@ class ProController(GameControllerInput):
             report.L2=buttons[22]
             report.R2=buttons[6]
             report.L3=buttons[11]
-            report.LR=buttons[10]
+            report.R3=buttons[10]
             
             
             

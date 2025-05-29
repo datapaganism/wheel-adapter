@@ -11,7 +11,7 @@ class Shifter(GameControllerInput):
     axes_index_len = -1
 
     def process_inputs(self, report):
-        device_hid_report = self.hid_device.read(64)  # Read 64 bytes
+        device_hid_report = self.hid_device.read(64)  
         if device_hid_report:
             self.decode(device_hid_report, signed=False)
             buttons = self.get_buttons()

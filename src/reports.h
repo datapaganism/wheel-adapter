@@ -25,12 +25,26 @@ typedef struct __attribute__((packed)) {
     uint32_t PS : 1;
     uint32_t touchpad : 1;
     uint32_t counter : 6;
-    uint8_t whatever[35];
+    uint8_t reserved[35];
     uint16_t wheel;
     uint16_t throttle;
     uint16_t brake;
     uint16_t clutch;
-    uint8_t whatever2[13];
+    uint8_t gear1 : 1;
+    uint8_t gear2 : 1;
+    uint8_t gear3 : 1;
+    uint8_t gear4 : 1;
+    uint8_t gear5 : 1;
+    uint8_t gear6 : 1;
+    uint8_t gear7 : 1;
+    uint8_t gearR : 1;
+    uint16_t reserved2;
+    uint8_t enter : 1;
+    uint8_t minus : 1;
+    uint8_t plus :  1;
+    uint8_t dual_ccw : 1;
+    uint8_t dial_cw : 1;
+    uint8_t reserved3[9];
 } g29_report_t;
 
 // Driving Force HID report

@@ -11,7 +11,6 @@ class DrivingForceButtons(GameControllerInput):
     axes_index_start = -1
     axes_index_len = -1
     report_length = 5
-    rep = 0
 
     def process_inputs(self, report):
         device_hid_report = self.hid_device.read(self.report_length)  
@@ -26,20 +25,11 @@ class DrivingForceButtons(GameControllerInput):
             report.PS = buttons[6]
             report.startOptions = buttons[3]
             report.selectShare = buttons[7]
-            # report.counter = buttons[13]
-            # if buttons[13] == 1:
-            #     # self.rep += 1
-            #     # print(self.rep)
-            #     report.counter = 0b111_111
-            #     report.counter = 0b111_000
-            #     report.counter = 0b000_100
-                
-                
-            #     return
-            # report.touchpad = buttons[4]
-                
-            report.L1Paddle=buttons[16]
-            report.R1Paddle=buttons[15]
+            report.plus = buttons[4]
+            report.minus = buttons[5]
+            report.enter = buttons[0]
+            report.dial_cw = buttons[2]
+            report.dial_ccw = buttons[1]
             report.L2=buttons[18]
             report.R2=buttons[13]
             report.L3=buttons[17]

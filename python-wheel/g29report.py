@@ -29,13 +29,26 @@ class G29Report(ctypes.LittleEndianStructure):
         ("PS", ctypes.c_uint32, 1),
         ("touchpad", ctypes.c_uint32, 1),
         ("counter", ctypes.c_uint32, 6),
-        # ("whatever", ctypes.c_uint8 * 35),  # Array of 35 bytes
-        # 8 bytes onwards
+        # ("reserved2", ctypes.c_uint8 * 35),  # Array of 35 bytes
         ("wheel", ctypes.c_uint16),
         ("throttle", ctypes.c_uint16),
         ("brake", ctypes.c_uint16),
         ("clutch", ctypes.c_uint16),
-        # ("whatever2", ctypes.c_uint8 * 13)  # Array of 13 bytes
+        ("gear1", ctypes.c_uint8, 1),
+        ("gear2", ctypes.c_uint8, 1),
+        ("gear3", ctypes.c_uint8, 1),
+        ("gear4", ctypes.c_uint8, 1),
+        ("gear5", ctypes.c_uint8, 1),
+        ("gear6", ctypes.c_uint8, 1),
+        ("gear7", ctypes.c_uint8, 1),
+        ("gearR", ctypes.c_uint8, 1),
+        ("reserved2", ctypes.c_uint16),
+        ("enter", ctypes.c_uint8, 1),
+        ("minus", ctypes.c_uint8, 1),
+        ("plus", ctypes.c_uint8, 1),
+        ("dial_ccw", ctypes.c_uint8, 1),
+        ("dial_cw", ctypes.c_uint8, 1),
+        # ("reserved3", ctypes.c_uint8 * 9)  # Array of 13 bytes
     ]
 
 
@@ -45,11 +58,21 @@ class G29Report(ctypes.LittleEndianStructure):
         report.ly = 128
         report.rx = 128
         report.ry = 128
+        # report.clutch = 0xFFFF
         return report
 
 
     def pack(self):
         return bytes(self)
+    
+    @classmethod
+    def size(cls):
+        temp = G29Report()
+        temp = temp.get()
+        temp = temp.pack()
+        temp = list(temp)
+        temp = len(temp)
+        return temp
 
 if __name__ == "__main__":
     report = G29Report()

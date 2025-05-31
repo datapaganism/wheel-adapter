@@ -11,6 +11,7 @@ from controllers.ShifterController import *
 from controllers.PedalsController import *
 from controllers.DrivingForceButtons import *
 from utils import *
+from g29report import G29Report
 
 """
 TODO
@@ -29,7 +30,7 @@ PRINT_ALL_UART_MSG = True
 BAUDRATE = 115200
 # BAUDRATE = 921600
 REPORT_OUT_RATE_HZ = 400
-REPORT_DATA_LEN = 16
+REPORT_DATA_LEN = G29Report.size()
 REPORT_HEADER_LEN = len(SYNC)
 
 UART_DATA_BITS = 8
@@ -72,11 +73,14 @@ def send_g29_report(ser, controllers):
             continue
 
         temp = controller.get_g29report()
-        for i in range(len(temp)):
-            final[i] |= temp[i]
+        for i, val in enumerate(list(temp)):
+            if val != 0:
+                final[i] |= val
 
     if final == report_prev:
         return
+    
+    # print(final)
 
     report_prev = final
     final = SYNC + final
@@ -92,6 +96,7 @@ def main():
         baudrate=BAUDRATE, bytesize=UART_DATA_BITS, stopbits=UART_STOP_BITS, parity=UART_PARITY
     )
 
+    # Place in order of priority, higher index takes priority
     controllers: GameControllerInput = [
         WheelController(),
         PedalsController(),

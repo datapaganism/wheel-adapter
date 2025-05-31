@@ -82,16 +82,21 @@ void dump_g29_report(g29_report_t* report)
     debugprintf("clutch is 0x%x\n", report->clutch);
 }
 
-
+/*
+    Nice to have, hardcode more offsets so we can not send report.reserved2 over the line
+*/
 void unpack_buffer_to_g29(uint8_t* buffer, g29_report_t* report)
 {
     uint8_t* b = buffer;
     uint8_t* r = (uint8_t*)report;
+    size_t remaining = MESSAGE_LEN;
 
-    memcpy(r,b, 8);
-    b += 8;
-    r += (8 + 34);
-    memcpy(r,b, 8);
+    uint8_t offset = 8;
+    memcpy(r,b, offset);
+    b += offset;
+    r += (offset + 34);
+    
+    memcpy(r,b, MESSAGE_LEN - offset);
     // dump_g29_report(report);
 }
 

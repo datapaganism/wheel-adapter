@@ -9,7 +9,7 @@ typedef struct __attribute__((packed))
     uint16_t sync_phrase;
 } header_t;
 
-#define MESSAGE_LEN 16
+#define MESSAGE_LEN 20
 
 typedef struct __attribute__((packed))
 {

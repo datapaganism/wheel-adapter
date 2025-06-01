@@ -218,13 +218,13 @@ class WheelController(GameControllerInput):
         if len(input_str) != 9:
             return
             
-        # This is weird, the header is split but the FFB packet inside look good to me
-        if input_str[0] == SYNC[1] and input_str[8] == SYNC[0]:
-            g29_ffb_packet = input_str[1:-1]
-            # for x in input_str:
-            #     print(f"{hex(x)},",end="")
-            # print("\n")
-
+        # for x in input_str:
+        #     print(f"{hex(x)},",end="")
+        # print("\n")
+            
+        if input_str[0] == SYNC[0] and input_str[1] == SYNC[1]:
+            g29_ffb_packet = input_str[2:]
+        
         if g29_ffb_packet is None:
             return
     

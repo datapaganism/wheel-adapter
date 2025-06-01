@@ -12,13 +12,11 @@
 #include "uart_config.h"
 #include "ring_buffer.h"
 #include "debugprintf.h"
+#include "crc8.h"
 
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
 #include "hardware/irq.h"
-
-
-#define FFB_PACKET_LENGTH 7
 
 buffer_t rx_buffer;
 buffer_t tx_buffer;
@@ -56,8 +54,8 @@ bool initialized = true;
 
 uint8_t get_buffer[64];
 uint8_t set_buffer[64];
-uint8_t ff_buf[FFB_PACKET_LENGTH] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-uint8_t prev_ff_buf[FFB_PACKET_LENGTH] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+uint8_t ff_buf[TX_FFB_DATA_LENGTH] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+uint8_t prev_ff_buf[TX_FFB_DATA_LENGTH] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
 g29_report_t report;
 g29_report_t prev_report;
@@ -87,16 +85,17 @@ void dump_g29_report(g29_report_t* report)
 */
 void unpack_buffer_to_g29(uint8_t* buffer, g29_report_t* report)
 {
+    const uint8_t reserved_len = sizeof(((g29_report_t*)0)->reserved);
     uint8_t* b = buffer;
     uint8_t* r = (uint8_t*)report;
-    size_t remaining = MESSAGE_LEN;
+    size_t remaining = RX_DATA_LENGTH;
 
     uint8_t offset = 8;
     memcpy(r,b, offset);
     b += offset;
-    r += (offset + 34);
+    r += (offset + reserved_len);
     
-    memcpy(r,b, MESSAGE_LEN - offset);
+    memcpy(r,b, RX_DATA_LENGTH - offset);
     // dump_g29_report(report);
 }
 
@@ -152,8 +151,9 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
 {
     uint8_t sync_0;
     uint8_t sync_1;
+    uint8_t crc;
     
-    while (b->size >= PACKET_LEN)
+    while (b->size >= RX_PACKET_LEN)
     {
 
         if (rb_pop(b, &sync_0) != 0)
@@ -176,21 +176,34 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
             continue;
         }
 
-        if (sync_0 == HEADER_BYTE_0 && sync_1 == HEADER_BYTE_1)
+        if (sync_0 != HEADER_BYTE_0 && sync_1 != HEADER_BYTE_1)
         {
-            for (uint8_t i = 0; i < (uint8_t)MESSAGE_LEN; i++)
-            {
-                if (rb_pop(b, payload_out + i) != 0)
-                {
-                    debugprintf("pop fail\n");
-                    return false;
-                }
-
-            }
-
-            return true;
+            return false;
         }
+
+        if (rb_pop(b, &crc) != 0)
+        {
+            return false;
+        }
+
+        for (uint8_t i = 0; i < (uint8_t)RX_DATA_LENGTH; i++)
+        {
+            if (rb_pop(b, payload_out + i) != 0)
+            {
+                debugprintf("pop fail\n");
+                return false;
+            }  
+        }
+
+        if (crc8_calculate(payload_out, RX_DATA_LENGTH) != crc)
+        {
+            debugprintf("bad crc\n");
+            return false;
+        }
+
+        return true;
     }
+    
 
     return false;
 
@@ -198,7 +211,7 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
 
 void get_uart_input_report_task()
 {
-    static uint8_t test_buf[MESSAGE_LEN];
+    static uint8_t test_buf[RX_DATA_LENGTH];
     uint8_t* ptr = (uint8_t*)&test_buf;
 
     if (get_payload(&rx_buffer, ptr)) {
@@ -208,7 +221,7 @@ void get_uart_input_report_task()
 
 void flush_tx_ffb_packet_out()
 {
-    if (tx_buffer.size >= FFB_PACKET_LENGTH + sizeof(header_t))
+    if (tx_buffer.size >= TX_FFB_DATA_LENGTH + sizeof(header_t))
     {
         if (uart_is_writable(uart0))
         {

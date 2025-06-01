@@ -36,7 +36,6 @@ REPORT_HEADER_LEN = len(SYNC)
 UART_DATA_BITS = 8
 UART_STOP_BITS = 1
 UART_PARITY = "N"
-
 uart_saturation_pc = (((UART_DATA_BITS + UART_STOP_BITS)  * ( REPORT_HEADER_LEN + REPORT_DATA_LEN) * REPORT_OUT_RATE_HZ ) / BAUDRATE) * 100
 
 
@@ -50,7 +49,7 @@ def read_uart_thread(inputQueue, ser, stop_event):
         if ser.inWaiting() > 0:
             x = ser.read(ser.inWaiting())
             # Print anything that isn't a FFB packet
-            if x[0] != 0x36 and PRINT_ALL_UART_MSG:
+            if x[0] != SYNC[0] and PRINT_ALL_UART_MSG:
                 print(x)
                 pass
             inputQueue.put(x)
@@ -80,10 +79,13 @@ def send_g29_report(ser, controllers):
         return
     
     # print(final)
+    
+    crc = bytearray([crc8_calculate(final)])
 
     report_prev = final
-    final = SYNC + final
+    final = SYNC + crc + final
     x = ser.write(final)
+    # print(x)
 
 
 def main():

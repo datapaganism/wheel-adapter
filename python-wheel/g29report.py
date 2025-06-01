@@ -58,7 +58,9 @@ class G29Report(ctypes.LittleEndianStructure):
         report.ly = 128
         report.rx = 128
         report.ry = 128
-        # report.clutch = 0xFFFF
+        report.brake = 0xFFFF
+        report.throttle = 0xFFFF
+        report.clutch = 0xFFFF
         return report
 
 

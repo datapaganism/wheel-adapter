@@ -25,6 +25,7 @@ add_executable(${target_name}
     src/adapter.c
     src/descriptors.c
     src/ring_buffer.c
+    src/crc8.c
 )
 target_include_directories(${target_name} PRIVATE src)
 

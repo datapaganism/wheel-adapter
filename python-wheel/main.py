@@ -41,11 +41,7 @@ uart_saturation_pc = (((UART_DATA_BITS + UART_STOP_BITS)  * ( REPORT_HEADER_LEN 
 
 
 
-# Check if we need
-pos = 0
-rot_deg = 0
-report_prev = None
-effects = []
+report_prev: G29Report = None
 
 
 
@@ -71,6 +67,9 @@ def send_g29_report(ser, controllers):
     for controller in controllers:
         if not controller.connected:
             continue
+        
+        # if controller.g29report.enter == 1:
+        #     exit(-1)
 
         temp = controller.get_g29report()
         for i, val in enumerate(list(temp)):

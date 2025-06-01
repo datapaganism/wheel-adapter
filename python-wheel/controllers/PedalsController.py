@@ -20,7 +20,7 @@ class PedalsController(GameControllerInput):
             brake = axes[1]
             clutch = axes[2]
             report.throttle = int(map_num(throt, -(1 << 15), (1 << 15), 0xFFFF, 0))
-            # report.brake = int(map_num(brake, -(1 << 15), (1 << 15), 0xFFFF, 0))
-            # report.clutch = int(map_num(clutch, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            report.brake = int(map_num(brake, -(1 << 15), (1 << 15), 0xFFFF, 0))
+            report.clutch = int(map_num(clutch, -(1 << 15), (1 << 15), 0xFFFF, 0))
             report.brake = int(map_num(clutch, -(1 << 15), (1 << 15), 0xFFFF, 0))
 

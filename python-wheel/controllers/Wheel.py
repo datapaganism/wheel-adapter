@@ -88,9 +88,6 @@ class OFFB_CMDTYPE(Enum):
 
 DEFAULT_FFBOARD_POLL_TIMEOUT = 10000
 
-min_gain = 10
-range_start = 0
-range_end = 10000
 
 class OFFB_FORCE_TYPE(Enum):
     Constant = 1
@@ -272,7 +269,7 @@ class WheelController(GameControllerInput):
                         L1 = unsigned_to_signed(L1, 8)
                         L2 = unsigned_to_signed(L2, 8)
                         
-                        # print(f"L1 {L1} L2 {L2} T1 {T1} S1 {S1} D1 {D1}")
+                        print(f"L1 {L1} L2 {L2} T1 {T1} S1 {S1} D1 {D1}")
                         
 
                         if T1 != 0 or S1 != 0 or D1 != 0:
@@ -282,26 +279,18 @@ class WheelController(GameControllerInput):
                             print("T2")
 
                         ratio_to_max = abs(self.axis_pos) / (1 << 15)
-                        ratio_to_max = 1
                         mag = map_num(L1, -(1 << 7), (1 << 7), -(1 << 15), (1 << 15))
                         
-                        
-                        clamped = clamp(L1, range_start, range_end)
-                        ffb_range = range_end - range_start
-                        
-                        r = ( (ffb_range - (clamped - range_start)) * math.pi) / ffb_range
-                        c = ( math.cos(r) + 1.0 ) * (100.0 - min_gain) / 2.0
-                        gain = int(c + min_gain)
-                        
-                        
-                        mag2 = apply_gain(mag, gain, -(1 << 15), (1 << 15))
+                        b = 20
+                        mag2 = mag * (1 - math.exp(-b*ratio_to_max))
                         print(f"mag {mag} filtered {mag2}")
+                        mag = mag2
                         
                         self.writeData(
                             OFFB_CLS.FX_MANAGER,
                             0,
                             OFFB_CMD.mag,
-                            data=int(((mag2) * MASTER_SCALE)),
+                            data=int(((mag) * MASTER_SCALE)),
                             adr=self.ffb_slot_to_index(force_slot),
                         )
                     case G29_FORCE_TYPE.High_Resolution_Spring:
@@ -320,6 +309,7 @@ class WheelController(GameControllerInput):
                         mag = (0x7FFF / 0xF) * K1
                         
                         deadzone = 0x7FFF / (0xFF / D1)
+                        deadzone /=2
                         print(f"mag {mag} deadzone {deadzone}")
                             
                         self.writeData(

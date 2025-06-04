@@ -47,3 +47,7 @@ def crc8_calculate(data):
     for val in data:
         crc = crc8_lookup[crc ^ val]
     return crc & 0xFF
+
+if __name__ == "__main__":
+    input = (9,8,7,6,5,4,3,2,1, 0xFF)
+    print(int(crc8_calculate(input)))

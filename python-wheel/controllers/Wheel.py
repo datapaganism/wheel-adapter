@@ -269,21 +269,21 @@ class WheelController(GameControllerInput):
                         L1 = unsigned_to_signed(L1, 8)
                         L2 = unsigned_to_signed(L2, 8)
                         
-                        print(f"L1 {L1} L2 {L2} T1 {T1} S1 {S1} D1 {D1}")
+                        # print(f"L1 {L1} L2 {L2} T1 {T1} S1 {S1} D1 {D1}")
                         
 
-                        if T1 != 0 or S1 != 0 or D1 != 0:
-                            print(f"T1 {T1} S1 {S1} D1 {D1}")
+                        # if T1 != 0 or S1 != 0 or D1 != 0:
+                        #     print(f"T1 {T1} S1 {S1} D1 {D1}")
                         
-                        if T2 != 0:
-                            print("T2")
+                        # if T2 != 0:
+                        #     print("T2")
 
                         ratio_to_max = abs(self.axis_pos) / (1 << 15)
                         mag = map_num(L1, -(1 << 7), (1 << 7), -(1 << 15), (1 << 15))
                         
                         b = 20
                         mag2 = mag * (1 - math.exp(-b*ratio_to_max))
-                        print(f"mag {mag} filtered {mag2}")
+                        # print(f"mag {mag} filtered {mag2}")
                         mag = mag2
                         
                         self.writeData(

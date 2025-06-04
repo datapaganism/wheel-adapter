@@ -29,7 +29,7 @@ SYNC = bytearray([0xA1, 0x36])
 PRINT_ALL_UART_MSG = True
 BAUDRATE = 115200
 # BAUDRATE = 921600
-REPORT_OUT_RATE_HZ = 400
+REPORT_OUT_RATE_HZ = 200
 REPORT_DATA_LEN = G29Report.size()
 REPORT_HEADER_LEN = len(SYNC)
 
@@ -57,7 +57,6 @@ def read_uart_thread(inputQueue, ser, stop_event):
     print("closing serial")
     ser.close()
 
-
 def send_g29_report(ser, controllers):
     global report_prev
 
@@ -67,23 +66,18 @@ def send_g29_report(ser, controllers):
         if not controller.connected:
             continue
         
-        # if controller.g29report.enter == 1:
-        #     exit(-1)
-
         temp = controller.get_g29report()
         for i, val in enumerate(list(temp)):
             if val != 0:
-                final[i] |= val
+                final[i] = val
 
     if final == report_prev:
         return
     
-    # print(final)
-    
     crc = bytearray([crc8_calculate(final)])
-
     report_prev = final
     final = SYNC + crc + final
+    
     x = ser.write(final)
     # print(x)
 

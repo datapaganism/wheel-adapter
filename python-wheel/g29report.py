@@ -11,24 +11,24 @@ class G29Report(ctypes.LittleEndianStructure):
         ("rx", ctypes.c_uint8),
         ("ry", ctypes.c_uint8),
         # 4 bytes
-        ("dpad", ctypes.c_uint32, 4),
-        ("square", ctypes.c_uint32, 1),
-        ("cross", ctypes.c_uint32, 1),
-        ("circle", ctypes.c_uint32, 1),
-        ("triangle", ctypes.c_uint32, 1),
+        ("dpad", ctypes.c_uint8, 4),
+        ("square", ctypes.c_uint8, 1),
+        ("cross", ctypes.c_uint8, 1),
+        ("circle", ctypes.c_uint8, 1),
+        ("triangle", ctypes.c_uint8, 1),
         # 1 Byte
-        ("L1Paddle", ctypes.c_uint32, 1),
-        ("R1Paddle", ctypes.c_uint32, 1),
-        ("L2", ctypes.c_uint32, 1),
-        ("R2", ctypes.c_uint32, 1),
-        ("selectShare", ctypes.c_uint32, 1),
-        ("startOptions", ctypes.c_uint32, 1),
-        ("L3", ctypes.c_uint32, 1),
-        ("R3", ctypes.c_uint32, 1),
+        ("L1Paddle", ctypes.c_uint8, 1),
+        ("R1Paddle", ctypes.c_uint8, 1),
+        ("L2", ctypes.c_uint8, 1),
+        ("R2", ctypes.c_uint8, 1),
+        ("selectShare", ctypes.c_uint8, 1),
+        ("startOptions", ctypes.c_uint8, 1),
+        ("L3", ctypes.c_uint8, 1),
+        ("R3", ctypes.c_uint8, 1),
         # 1 Byte
-        ("PS", ctypes.c_uint32, 1),
-        ("touchpad", ctypes.c_uint32, 1),
-        ("counter", ctypes.c_uint32, 6),
+        ("PS", ctypes.c_uint8, 1),
+        ("touchpad", ctypes.c_uint8, 1),
+        ("counter", ctypes.c_uint8, 6),
         # ("reserved2", ctypes.c_uint8 * 35),  # Array of 35 bytes
         ("wheel", ctypes.c_uint16),
         ("throttle", ctypes.c_uint16),
@@ -42,7 +42,7 @@ class G29Report(ctypes.LittleEndianStructure):
         ("gear6", ctypes.c_uint8, 1),
         ("gear7", ctypes.c_uint8, 1),
         ("gearR", ctypes.c_uint8, 1),
-        ("reserved2", ctypes.c_uint16),
+        # ("reserved2", ctypes.c_uint16),
         ("enter", ctypes.c_uint8, 1),
         ("minus", ctypes.c_uint8, 1),
         ("plus", ctypes.c_uint8, 1),
@@ -106,3 +106,6 @@ if __name__ == "__main__":
     packed_data = bytes(report)
 
     print(packed_data)
+    
+    if __name__ == "__main__":
+        print(G29Report.size())

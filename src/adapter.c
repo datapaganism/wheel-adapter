@@ -80,22 +80,41 @@ void dump_g29_report(g29_report_t* report)
     debugprintf("clutch is 0x%x\n", report->clutch);
 }
 
-/*
-    Nice to have, hardcode more offsets so we can not send report.reserved2 over the line
-*/
 void unpack_buffer_to_g29(uint8_t* buffer, g29_report_t* report)
 {
-    const uint8_t reserved_len = sizeof(((g29_report_t*)0)->reserved);
+    const uint8_t skip1_len = sizeof(((g29_report_t*)0)->reserved);
+    const uint8_t skip2_len = sizeof(((g29_report_t*)0)->reserved2);
+    
     uint8_t* b = buffer;
     uint8_t* r = (uint8_t*)report;
     size_t remaining = RX_DATA_LENGTH;
+    uint8_t to_copy = 0;
+    uint8_t bytes_written = 0;
 
-    uint8_t offset = 8;
-    memcpy(r,b, offset);
-    b += offset;
-    r += (offset + reserved_len);
+
+    // Copy first 7 bytes of report
+    to_copy = 7;
+    memcpy(r,b, to_copy);
+    b += to_copy;
+    r += to_copy;
+    bytes_written += to_copy;
+
+    // Skip the next 35 bytes
+    r += skip1_len;
+
+    // Copy the next 9 bytes
+    to_copy = 9;
+    memcpy(r,b, to_copy);
+    b += to_copy;
+    r += (to_copy);
+    bytes_written += to_copy;
+
+    // Skip the next 2 bytes
+    r += skip2_len;
     
-    memcpy(r,b, RX_DATA_LENGTH - offset);
+    // Copy remainder
+    memcpy(r,b, RX_DATA_LENGTH - bytes_written);
+
     // dump_g29_report(report);
 }
 
@@ -152,7 +171,6 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
     uint8_t sync_0;
     uint8_t sync_1;
     uint8_t crc;
-    
     while (b->size >= RX_PACKET_LEN)
     {
 
@@ -195,11 +213,15 @@ bool get_payload(buffer_t *b, uint8_t *payload_out)
             }  
         }
 
+
+#define CRC_CHECK
+#ifdef CRC_CHECK
         if (crc8_calculate(payload_out, RX_DATA_LENGTH) != crc)
         {
-            debugprintf("bad crc\n");
+            // debugprintf("bad crc\n");
             return false;
         }
+#endif
 
         return true;
     }

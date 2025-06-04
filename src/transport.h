@@ -12,7 +12,7 @@ typedef struct __attribute__((packed))
 } header_t;
 
 #define TX_FFB_DATA_LENGTH 7
-#define RX_DATA_LENGTH (sizeof(g29_report_t) - (sizeof((g29_report_t*)0)->reserved + sizeof((g29_report_t*)0)->reserved3))
+#define RX_DATA_LENGTH (int)(sizeof(g29_report_t) - (sizeof((g29_report_t*)0)->reserved + sizeof((g29_report_t*)0)->reserved2 + sizeof((g29_report_t*)0)->reserved3))
 
 typedef struct __attribute__((packed))
 {
@@ -23,7 +23,7 @@ typedef struct __attribute__((packed))
 
 #define RX_PACKET_LEN (sizeof(rx_packet_t))
 
-#define RX_TX_BUFFER_LEN ((256 - RX_PACKET_LEN) + RX_PACKET_LEN)
+#define RX_TX_BUFFER_LEN (RX_PACKET_LEN * 100)
 
 
 
